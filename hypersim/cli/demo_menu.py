@@ -19,7 +19,7 @@ from hypersim.objects import (
     SimplexPrism,
     RectifiedTesseract,
     CubePrism,
-    Helix4D,
+    Spherinder,
 )
 from hypersim.visualization.renderers.pygame import Color, PygameRenderer
 
@@ -44,7 +44,7 @@ def run_demo_menu() -> None:
             factory=lambda: Hypercube(size=1.3),
             color=Color(90, 200, 255),
             category="Regular polytopes",
-            info="Vertices: (±1, ±1, ±1, ±1). Dual of the 16-cell. 8 cubic cells.",
+            info="Vertices: (±1, ±1, ±1, ±1). 16 vertices, 32 edges, 24 square faces, 8 cubic cells. Dual of the 16-cell; cartesian product of two squares.",
         ),
         DemoEntry(
             name="4D Simplex (5-cell)",
@@ -52,7 +52,7 @@ def run_demo_menu() -> None:
             factory=lambda: Simplex4D(size=1.3),
             color=Color(255, 150, 90),
             category="Regular polytopes",
-            info="Regular simplex in 4D: 5 vertices, 10 edges, 10 faces, 5 tetrahedral cells.",
+            info="Regular simplex in 4D: 5 vertices, 10 edges, 10 triangular faces, 5 tetrahedral cells. Vertices form a basis with equal pairwise distances.",
         ),
         DemoEntry(
             name="16-cell (Hyperoctahedron)",
@@ -60,7 +60,7 @@ def run_demo_menu() -> None:
             factory=lambda: SixteenCell(size=1.1),
             color=Color(140, 255, 160),
             category="Regular polytopes",
-            info="Vertices at ±axes. Dual of the tesseract. 16 tetrahedral cells; 24 edges (edge≈size).",
+            info="Vertices at ±axes: (±1,0,0,0), etc. 8 vertices, 24 edges, 32 triangular faces, 16 tetrahedral cells. Dual of the tesseract; edge length tuned to size.",
         ),
         DemoEntry(
             name="24-cell (Icositetrachoron)",
@@ -69,7 +69,7 @@ def run_demo_menu() -> None:
             color=Color(200, 130, 255),
             line_width=2,
             category="Regular polytopes",
-            info="Self-dual regular 4-polytope with 24 octahedral cells; vertices on axes and half-coordinates.",
+            info="Self-dual regular 4-polytope. 24 vertices: 8 axis points ±1 and 16 half-points (±1/2,±1/2,±1/2,±1/2). 96 edges; cells are octahedra.",
         ),
         DemoEntry(
             name="Rectified Tesseract",
@@ -78,7 +78,7 @@ def run_demo_menu() -> None:
             color=Color(180, 220, 255),
             category="Regular polytopes",
             line_width=2,
-            info="Vertices are midpoints of tesseract edges: permutations of (±1, ±1, 0, 0). 24 verts, 96 edges.",
+            info="Vertices are midpoints of tesseract edges: permutations of (±1, ±1, 0, 0). 24 vertices, 96 edges; faces are triangles and squares.",
         ),
         DemoEntry(
             name="Duoprism (3x4)",
@@ -87,7 +87,7 @@ def run_demo_menu() -> None:
             color=Color(255, 220, 120),
             line_width=2,
             category="Products / prisms",
-            info="Vertices at (cos 2πi/3, sin 2πi/3, cos 2πj/4, sin 2πj/4). Edges wrap around both rings.",
+            info="Vertices at (cos 2πi/3, sin 2πi/3, cos 2πj/4, sin 2πj/4). 12 vertices. Edges wrap along both polygon rings; topology is a flat 2-torus embedded in 4D.",
         ),
         DemoEntry(
             name="Simplex Prism",
@@ -96,7 +96,7 @@ def run_demo_menu() -> None:
             color=Color(255, 180, 120),
             line_width=2,
             category="Products / prisms",
-            info="Two 5-cells separated in W and joined vertex-to-vertex. 10 vertices, 25 intra-simplex edges + 5 spans.",
+            info="Two 5-cells separated in W and joined vertex-to-vertex. 10 vertices. Edges: 10 + 10 within each simplex + 5 vertical links.",
         ),
         DemoEntry(
             name="Cube Prism",
@@ -105,7 +105,7 @@ def run_demo_menu() -> None:
             color=Color(200, 255, 140),
             line_width=2,
             category="Products / prisms",
-            info="Cartesian product of a cube and a segment. Two cubes linked along W; 48 edges total.",
+            info="Cartesian product of a cube and a segment in W. Two cubes linked vertex-to-vertex along W. 16 vertices, 48 edges.",
         ),
         DemoEntry(
             name="Hypercube Grid (3x3x3x3)",
@@ -114,7 +114,7 @@ def run_demo_menu() -> None:
             color=Color(120, 200, 255),
             line_width=1,
             category="Lattices / procedural",
-            info="Grid on [-size, size]^4 with nearest-neighbor edges in each axis direction.",
+            info="Grid on [-size, size]^4 with nearest-neighbor edges in each axis direction. Vertices = divisions^4; edges = 4*(divisions-1)*divisions^3.",
         ),
         DemoEntry(
             name="Clifford Torus",
@@ -123,16 +123,16 @@ def run_demo_menu() -> None:
             color=Color(255, 160, 200),
             line_width=1,
             category="Tori / manifolds",
-            info="Parameterized by angles (u,v): (cos u, sin u, cos v, sin v)/√2. Embeds a flat torus in S3.",
+            info="Parameterized by angles (u,v): (cos u, sin u, cos v, sin v)/√2. Flat torus embedded in S3; edges wrap along both angular directions.",
         ),
         DemoEntry(
-            name="Helix 4D",
-            description="Coupled 4D helix winding in XYZ with a full W rotation.",
-            factory=lambda: Helix4D(turns=3, segments=320, radius=1.0, pitch=2.0, w_amp=1.2, wrap=False, phase=math.pi / 6),
-            color=Color(255, 255, 140),
+            name="Spherinder",
+            description="Sphere extruded along W; think '4D cylinder with spherical cross-sections'.",
+            factory=lambda: Spherinder(radius=1.0, height=1.0, segments=24, stacks=12),
+            color=Color(200, 255, 200),
             line_width=1,
-            category="Curves / paths",
-            info="Parametric helix: (r cos t, r sin t, pitch*(s-0.5), w_amp*(s-0.5)), t=2π turns*s. Linear W drift avoids self-overlap; edges follow the path; optional wrap can close it.",
+            category="Manifolds / surfaces",
+            info="Parametric surface: (r cosθ sinφ, r sinθ sinφ, r cosφ, w) with w∈{-h/2,+h/2}. Two spherical skins connected across W approximate the spherinder hull.",
         ),
     ]
 
