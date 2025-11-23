@@ -13,7 +13,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run hypersim demos")
     parser.add_argument(
         "--demo",
-        choices=["tesseract"],
+        choices=["tesseract", "menu"],
         default="tesseract",
         help="Which built-in demo to run",
     )
@@ -21,6 +21,9 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.demo == "tesseract":
         _run_tesseract_demo()
+    elif args.demo == "menu":
+        from .demo_menu import run_demo_menu
+        run_demo_menu()
     else:
         parser.error(f"Unknown demo: {args.demo}")
 
