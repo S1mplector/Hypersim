@@ -43,8 +43,12 @@ def draw_line_4d(
     try:
         x1, y1, z1 = camera.project_4d_to_2d(start)
         x2, y2, z2 = camera.project_4d_to_2d(end)
-    except Exception as e:
+    except Exception:
         # Skip if projection fails
+        return
+
+    # Skip if projection returned non-finite values
+    if not np.isfinite([x1, y1, z1, x2, y2, z2]).all():
         return
     
     # Skip drawing if both points are behind the camera

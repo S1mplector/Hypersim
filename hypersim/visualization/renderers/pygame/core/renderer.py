@@ -99,7 +99,8 @@ class PygameRenderer:
         Args:
             dt: Time since last update in seconds
         """
-        self.scene.update(dt)
+        safe_dt = min(dt, 0.25)  # Avoid huge jumps after pauses
+        self.scene.update(safe_dt)
         
         # Update FPS counter
         self.frame_count += 1
@@ -188,15 +189,28 @@ class PygameRenderer:
         width: int = 1,
     ) -> None:
         """Generic renderer for any polytope with `edges` and `get_transformed_vertices()`."""
-        verts = obj.get_transformed_vertices()
+        if not hasattr(obj, "edges") or not hasattr(obj, "get_transformed_vertices"):
+            return
+
+        try:
+            verts = obj.get_transformed_vertices()
+        except Exception:
+            return
+
         resolved_color = self._coerce_color(
             color if color is not None else getattr(obj, "color", None),
             Color(0, 255, 255),
         )
         resolved_width = getattr(obj, "line_width", width)
 
-        for a, b in obj.edges:
-            self.draw_line_4d(verts[a], verts[b], resolved_color, resolved_width)
+        for a, b in getattr(obj, "edges", []):
+            if a >= len(verts) or b >= len(verts):
+                continue
+            try:
+                self.draw_line_4d(verts[a], verts[b], resolved_color, resolved_width)
+            except Exception:
+                # Skip problematic edge to keep loop running
+                continue
 
     # Internal helpers
     @staticmethod

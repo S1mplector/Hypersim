@@ -85,18 +85,24 @@ class Camera:
             A tuple of (x, y, depth) where (x, y) are screen coordinates
             and depth is the distance from the camera.
         """
-        # Currently using a simple projection that skips 4D look-at for simplicity
-        view_point = point_4d
+        # Translate into camera space (no full look-at yet)
+        view_point = point_4d - self.position
         
         # Project from 4D to 3D, then to 2D screen space
+        effective_distance = max(self.distance, 0.01)
         projected = perspective_projection_4d_to_3d(
             view_point[np.newaxis, :], 
-            self.distance
+            effective_distance
         )[0]
+
+        # Abort if projection blew up
+        if not np.isfinite(projected).all():
+            raise ValueError("Projection produced non-finite values")
         
         # Convert to screen coordinates
-        x = int(projected[0] * 100 + self.width // 2)
-        y = int(-projected[1] * 100 + self.height // 2)  # y-axis is inverted for screen
+        scale = 140  # UI-friendly default scale
+        x = int(projected[0] * scale + self.width // 2)
+        y = int(-projected[1] * scale + self.height // 2)  # y-axis is inverted for screen
         
         return x, y, projected[2]
     

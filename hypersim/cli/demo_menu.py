@@ -7,7 +7,15 @@ from typing import Callable, List
 
 import pygame
 
-from hypersim.objects import Hypercube, Simplex4D, SixteenCell
+from hypersim.objects import (
+    Hypercube,
+    Simplex4D,
+    SixteenCell,
+    TwentyFourCell,
+    Duoprism,
+    HypercubeGrid,
+    CliffordTorus,
+)
 from hypersim.visualization.renderers.pygame import Color, PygameRenderer
 
 
@@ -41,6 +49,34 @@ def run_demo_menu() -> None:
             factory=lambda: SixteenCell(size=1.1),
             color=Color(140, 255, 160),
         ),
+        DemoEntry(
+            name="24-cell (Icositetrachoron)",
+            description="Self-dual regular polytope with 24 vertices, 96 edges.",
+            factory=lambda: TwentyFourCell(size=1.1),
+            color=Color(200, 130, 255),
+            line_width=2,
+        ),
+        DemoEntry(
+            name="Duoprism (3x4)",
+            description="Cartesian product of triangle and square; 12 vertices on a 4D torus.",
+            factory=lambda: Duoprism(m=3, n=4, size=1.1),
+            color=Color(255, 220, 120),
+            line_width=2,
+        ),
+        DemoEntry(
+            name="Hypercube Grid (3x3x3x3)",
+            description="Regular lattice in 4D; edges connect immediate neighbors.",
+            factory=lambda: HypercubeGrid(divisions=3, size=1.0),
+            color=Color(120, 200, 255),
+            line_width=1,
+        ),
+        DemoEntry(
+            name="Clifford Torus",
+            description="S1 x S1 embedded in S3; a 4D torus wireframe.",
+            factory=lambda: CliffordTorus(segments_u=28, segments_v=16, size=1.0),
+            color=Color(255, 160, 200),
+            line_width=1,
+        ),
     ]
 
     renderer = PygameRenderer(
@@ -51,14 +87,20 @@ def run_demo_menu() -> None:
         distance=5.0,
     )
 
-    state = {"index": 0, "active": None}
+    state = {"index": 0, "active": None, "mode": "preview"}  # modes: preview | viewer
 
     def load_demo(new_index: int) -> None:
         """Instantiate and display the selected demo."""
         state["index"] = new_index % len(demos)
         demo = demos[state["index"]]
         renderer.clear_scene()
-        shape = demo.factory()
+        try:
+            shape = demo.factory()
+        except Exception as exc:
+            print(f"[demo_menu] Failed to create demo '{demo.name}': {exc}")
+            state["active"] = None
+            return
+
         # Attach display hints
         setattr(shape, "color", demo.color)
         setattr(shape, "line_width", demo.line_width)
@@ -77,10 +119,20 @@ def run_demo_menu() -> None:
     def reset_demo() -> None:
         load_demo(state["index"])
 
+    def enter_viewer() -> None:
+        state["mode"] = "viewer"
+
+    def back_to_preview() -> None:
+        state["mode"] = "preview"
+
     # Bind menu controls before entering the loop
     renderer.input_handler.register_key_handler(pygame.K_RIGHT, next_demo)
     renderer.input_handler.register_key_handler(pygame.K_LEFT, prev_demo)
-    renderer.input_handler.register_key_handler(pygame.K_SPACE, reset_demo)
+    renderer.input_handler.register_key_handler(pygame.K_UP, prev_demo)
+    renderer.input_handler.register_key_handler(pygame.K_DOWN, next_demo)
+    renderer.input_handler.register_key_handler(pygame.K_SPACE, lambda: reset_demo() if state["mode"] == "viewer" else enter_viewer())
+    renderer.input_handler.register_key_handler(pygame.K_RETURN, enter_viewer)
+    renderer.input_handler.register_key_handler(pygame.K_m, back_to_preview)
 
     load_demo(0)
 
@@ -91,7 +143,7 @@ def run_demo_menu() -> None:
     last_time = pygame.time.get_ticks() / 1000.0
 
     def draw_overlay() -> None:
-        """Draw menu text and stats over the scene."""
+        """Draw overlay depending on mode (preview or viewer)."""
         screen = renderer.screen
         overlay = pygame.Surface((screen.get_width(), 140), pygame.SRCALPHA)
         overlay.fill((8, 8, 16, 190))
@@ -122,16 +174,59 @@ def run_demo_menu() -> None:
             screen.blit(font_body.render(stats_text, True, (180, 200, 220)), (18, text_y))
         text_y += 26
 
-        controls = "Left/Right: cycle demos   Space: reset demo   Drag + LMB: orbit camera   +/-: zoom   Esc: quit"
+        if state["mode"] == "preview":
+            controls = "Enter/Space: start viewer   Up/Down/Left/Right: choose demo   Esc: quit"
+        else:
+            controls = "Left/Right: cycle demos   Space: reset demo   M: back to menu   Drag+LMB: orbit   +/-: zoom   Esc: quit"
         screen.blit(font_body.render(controls, True, (170, 180, 200)), (18, text_y))
+
+        # On preview, show a scrollable list on the right for quick reference
+        if state["mode"] == "preview":
+            list_overlay = pygame.Surface((320, screen.get_height()), pygame.SRCALPHA)
+            list_overlay.fill((6, 6, 12, 180))
+            list_x = screen.get_width() - 330
+            screen.blit(list_overlay, (list_x, 0))
+            list_y = 24
+            for idx, entry in enumerate(demos):
+                highlight = idx == state["index"]
+                name_color = (255, 220, 160) if highlight else (190, 190, 200)
+                desc_color = (180, 180, 190)
+                screen.blit(font_body.render(f"{idx+1}. {entry.name}", True, name_color), (list_x + 16, list_y))
+                list_y += 22
+                desc_lines = [entry.description]
+                for line in desc_lines:
+                    screen.blit(font_body.render(f"   {line}", True, desc_color), (list_x + 16, list_y))
+                    list_y += 20
+                list_y += 6
 
     running = True
     while running:
         now = pygame.time.get_ticks() / 1000.0
         dt = now - last_time
+        if dt > 0.5:
+            dt = 0.0  # Skip huge jumps when tabbed out
         last_time = now
 
-        running = renderer.input_handler.handle_events()
+        # Event handling with mode awareness
+        if state["mode"] == "preview":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
+                    elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        enter_viewer()
+                    elif event.key in (pygame.K_LEFT, pygame.K_a):
+                        prev_demo()
+                    elif event.key in (pygame.K_RIGHT, pygame.K_d):
+                        next_demo()
+                    elif event.key in (pygame.K_UP, pygame.K_w):
+                        prev_demo()
+                    elif event.key in (pygame.K_DOWN, pygame.K_s):
+                        next_demo()
+        else:
+            running = renderer.input_handler.handle_events()
 
         # Mild idle rotation for visual interest
         obj = state["active"]
