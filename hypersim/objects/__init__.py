@@ -7,6 +7,10 @@ from .twenty_four_cell import TwentyFourCell  # noqa: F401
 from .duoprism import Duoprism  # noqa: F401
 from .hypercube_grid import HypercubeGrid  # noqa: F401
 from .clifford_torus import CliffordTorus  # noqa: F401
+from .simplex_prism import SimplexPrism  # noqa: F401
+from .rectified_tesseract import RectifiedTesseract  # noqa: F401
+from .cube_prism import CubePrism  # noqa: F401
+from .helix_4d import Helix4D  # noqa: F401
 
 __all__ = [
     'Simplex4D',
@@ -16,4 +20,8 @@ __all__ = [
     'Duoprism',
     'HypercubeGrid',
     'CliffordTorus',
+    'SimplexPrism',
+    'RectifiedTesseract',
+    'CubePrism',
+    'Helix4D',
 ]

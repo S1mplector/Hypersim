@@ -176,8 +176,8 @@ def perspective_projection_4d_to_3d(points_4d: np.ndarray, distance: float = 5.0
     
     # Avoid division by zero and handle points behind the camera
     denominator = distance - w
-    # Add small epsilon to avoid division by zero
-    denominator = np.where(np.abs(denominator) < 1e-6, 1e-6, denominator)
+    # Clamp to positive epsilon to avoid flips/infinite scale
+    denominator = np.clip(denominator, 0.05, None)
     
     perspective_factor = distance / denominator
     

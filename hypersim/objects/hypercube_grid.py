@@ -23,6 +23,7 @@ class HypercubeGrid(Shape4D):
         super().__init__(**kwargs)
         self.divisions = int(divisions)
         self.size = float(size)
+        self.auto_spin_enabled = True
 
         step = 2.0 * self.size / (self.divisions - 1)
         coords = np.linspace(-self.size, self.size, self.divisions, dtype=np.float32)

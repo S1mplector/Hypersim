@@ -91,7 +91,7 @@ class Camera:
         # Project from 4D to 3D, then to 2D screen space
         effective_distance = max(self.distance, 0.01)
         projected = perspective_projection_4d_to_3d(
-            view_point[np.newaxis, :], 
+            view_point[np.newaxis, :],
             effective_distance
         )[0]
 

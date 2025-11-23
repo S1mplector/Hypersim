@@ -1,4 +1,5 @@
 """16-cell (hyperoctahedron) implementation."""
+import math
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Any
 
@@ -34,8 +35,9 @@ class SixteenCell(Shape4D):
             np.array([0, 0, 0, -1], dtype=np.float32)   # ±w
         ]
         
-        # Scale the vertices
-        self._base_vertices = [v * (size / 2.0) for v in self._base_vertices]
+        # Scale the vertices so the edge length ≈ size (base edge length is sqrt(2))
+        scale = size / math.sqrt(2.0)
+        self._base_vertices = [v * scale for v in self._base_vertices]
         
         # Define edges (each vertex connects to all others except its opposite)
         self._edges = [
@@ -110,4 +112,4 @@ class SixteenCell(Shape4D):
             dt: Delta time since last update
         """
         # Apply a gentle rotation for visual interest
-        self.rotate(xy=0.3 * dt, zw=0.2 * dt, yw=0.1 * dt)
+        self.rotate(xy=0.3 * dt, zw=0.2 * dt, yw=0.15 * dt, xw=0.18 * dt)

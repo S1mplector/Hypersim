@@ -33,6 +33,8 @@ class PygameRenderer:
         title: str = "4D Renderer",
         background_color: Optional[Color] = None,
         distance: float = 5.0,
+        auto_spin: bool = True,
+        spin_rates: Optional[dict[str, float]] = None,
     ) -> None:
         """Initialize the Pygame renderer.
         
@@ -66,6 +68,14 @@ class PygameRenderer:
         self.fps = 0.0
         self.frame_count = 0
         self.last_fps_update = pygame.time.get_ticks()
+        self._dt_smooth = 1.0 / 60.0
+        self.auto_spin = auto_spin
+        self.spin_rates = spin_rates or {
+            "xy": 0.4,
+            "xw": 0.6,
+            "yw": 0.5,
+            "zw": 0.3,
+        }
     
     def clear(self) -> None:
         """Clear the screen and z-buffer."""
@@ -100,8 +110,12 @@ class PygameRenderer:
             dt: Time since last update in seconds
         """
         safe_dt = min(dt, 0.25)  # Avoid huge jumps after pauses
-        self.scene.update(safe_dt)
-        
+        # Low-pass filter to smooth jittery frame times
+        self._dt_smooth = 0.2 * safe_dt + 0.8 * self._dt_smooth
+        smooth_dt = min(self._dt_smooth, 0.05)
+
+        self.scene.update(smooth_dt)
+
         # Update FPS counter
         self.frame_count += 1
         now = pygame.time.get_ticks()
@@ -109,6 +123,23 @@ class PygameRenderer:
             self.fps = self.frame_count * 1000.0 / (now - self.last_fps_update)
             self.frame_count = 0
             self.last_fps_update = now
+        # Optional auto-spin of objects (unless explicitly disabled per-object)
+        if self.auto_spin:
+            for obj in self.scene.objects:
+                if not hasattr(obj, "rotate"):
+                    continue
+                if getattr(obj, "auto_spin_enabled", True) is False:
+                    continue
+                rates = getattr(obj, "spin_rates", self.spin_rates)
+                try:
+                    obj.rotate(
+                        xy=rates.get("xy", 0.0) * smooth_dt,
+                        xw=rates.get("xw", 0.0) * smooth_dt,
+                        yw=rates.get("yw", 0.0) * smooth_dt,
+                        zw=rates.get("zw", 0.0) * smooth_dt,
+                    )
+                except Exception:
+                    continue
     
     def render(self) -> None:
         """Render the current scene."""

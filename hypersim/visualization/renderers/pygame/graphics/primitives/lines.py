@@ -54,6 +54,9 @@ def draw_line_4d(
     # Skip drawing if both points are behind the camera
     near_plane = 0.1
     far_plane = 100.0
+    if camera is not None and hasattr(camera, "distance"):
+        near_plane = max(0.05, float(camera.distance) * 0.05)
+        far_plane = float(camera.distance) * 40.0
     
     # Clip line against near and far planes
     if z1 < near_plane and z2 < near_plane:
@@ -62,16 +65,17 @@ def draw_line_4d(
         return  # Both points beyond far plane
     
     # Clip line against near plane
-    if z1 < near_plane:
-        t = (near_plane - z1) / (z2 - z1)
-        x1 = x1 + t * (x2 - x1)
-        y1 = y1 + t * (y2 - y1)
-        z1 = near_plane
-    elif z2 < near_plane:
-        t = (near_plane - z2) / (z1 - z2)
-        x2 = x2 + t * (x1 - x2)
-        y2 = y2 + t * (y1 - y2)
-        z2 = near_plane
+    if z2 != z1:
+        if z1 < near_plane:
+            t = (near_plane - z1) / (z2 - z1)
+            x1 = x1 + t * (x2 - x1)
+            y1 = y1 + t * (y2 - y1)
+            z1 = near_plane
+        elif z2 < near_plane:
+            t = (near_plane - z2) / (z1 - z2)
+            x2 = x2 + t * (x1 - x2)
+            y2 = y2 + t * (y1 - y2)
+            z2 = near_plane
     
     # Skip if line is completely outside the viewport with some padding
     viewport_padding = 100  # pixels
