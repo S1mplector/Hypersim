@@ -13,6 +13,7 @@ from .cube_prism import CubePrism  # noqa: F401
 from .spherinder import Spherinder  # noqa: F401
 from .mobius_4d import Mobius4D  # noqa: F401
 from .icosa_prism import IcosaPrism  # noqa: F401
+from .penteract_frame import PenteractFrame  # noqa: F401
 
 __all__ = [
     'Simplex4D',
@@ -28,4 +29,5 @@ __all__ = [
     'Spherinder',
     'Mobius4D',
     'IcosaPrism',
+    'PenteractFrame',
 ]

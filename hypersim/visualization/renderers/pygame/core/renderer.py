@@ -180,7 +180,7 @@ class PygameRenderer:
         start: Vector4D,
         end: Vector4D,
         color: Color | Sequence[int] | None,
-        width: int = 1,
+        width: int = 2,
     ) -> None:
         """Draw a 4D line."""
         from ..graphics.primitives.lines import draw_line_4d as draw_line
@@ -232,7 +232,7 @@ class PygameRenderer:
             color if color is not None else getattr(obj, "color", None),
             Color(0, 255, 255),
         )
-        resolved_width = getattr(obj, "line_width", width)
+        resolved_width = getattr(obj, "line_width", width if width is not None else 2)
 
         for a, b in getattr(obj, "edges", []):
             if a >= len(verts) or b >= len(verts):

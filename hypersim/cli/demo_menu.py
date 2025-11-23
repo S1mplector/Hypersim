@@ -22,6 +22,7 @@ from hypersim.objects import (
     Spherinder,
     Mobius4D,
     IcosaPrism,
+    PenteractFrame,
 )
 from hypersim.visualization.renderers.pygame import Color, PygameRenderer
 
@@ -37,9 +38,13 @@ class DemoEntry:
     info: str = ""
 
 
-def run_demo_menu() -> None:
-    """Launch a simple menu for cycling through the built-in 4D shapes."""
-    demos: List[DemoEntry] = [
+def run_demo_menu(start_index: int = 0) -> None:
+    return _run_demo_menu_internal(start_index=start_index)
+
+
+def get_demo_entries() -> List[DemoEntry]:
+    """Return the list of demo entries for reuse in other launchers."""
+    return [
         DemoEntry(
             name="Hypercube (Tesseract)",
             description="16 vertices, 32 edges. Classic wireframe cube-in-cube.",
@@ -119,6 +124,15 @@ def run_demo_menu() -> None:
             info="Two icosahedra offset in W and connected vertex-to-vertex. Base layer: 12 vertices, 30 edges; doubled to 24 verts plus 12 vertical links (90 edges total).",
         ),
         DemoEntry(
+            name="Penteract Frame",
+            description="Sparse projection of a 5D hypercube into 4D.",
+            factory=lambda: PenteractFrame(size=1.0),
+            color=Color(180, 255, 255),
+            line_width=2,
+            category="Higher-dimensional",
+            info="Vertices are (±1)^5 projected to 4D by scaling with the 5th coord. Edges connect points differing in exactly one of five coordinates (80 edges). Visualizes a 5-cube skeleton in 4D.",
+        ),
+        DemoEntry(
             name="Hypercube Grid (3x3x3x3)",
             description="Regular lattice in 4D; edges connect immediate neighbors.",
             factory=lambda: HypercubeGrid(divisions=3, size=1.0),
@@ -156,6 +170,11 @@ def run_demo_menu() -> None:
         ),
     ]
 
+
+def _run_demo_menu_internal(start_index: int = 0) -> None:
+    """Launch a simple menu for cycling through the built-in 4D shapes."""
+    demos: List[DemoEntry] = get_demo_entries()
+
     renderer = PygameRenderer(
         width=1100,
         height=800,
@@ -171,7 +190,7 @@ def run_demo_menu() -> None:
         if entry.category not in categories:
             categories.append(entry.category)
     state = {
-        "index": 0,
+        "index": start_index % len(demos),
         "active": None,
         "mode": "preview",
         "show_info": False,

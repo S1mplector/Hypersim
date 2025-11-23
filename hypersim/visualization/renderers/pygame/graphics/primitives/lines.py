@@ -21,7 +21,7 @@ def draw_line_4d(
     start: Vector4D,
     end: Vector4D,
     color: Color,
-    width: int = 1,
+    width: int = 2,
     camera: Any = None,
     zbuffer: Optional[np.ndarray] = None
 ) -> None:
