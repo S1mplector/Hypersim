@@ -15,7 +15,8 @@ from hypersim.cli.sandbox import run_sandbox
 
 class Card:
     def __init__(self, rect: pygame.Rect, index: int):
-        self.rect = rect
+        self.base_rect = rect
+        self.rect = rect.copy()
         self.index = index
         self.hover = False
 
@@ -69,7 +70,13 @@ def run_app_menu() -> None:
         setattr(shape, "line_width", entry.line_width)
         preview_shapes.append(shape)
 
-    cards = _build_cards(pygame.Rect(40, 140, width - 80, height - 240), 360, 220, len(demos), cols=3, gutter=24)
+    scroll_area = pygame.Rect(40, 140, width - 80, height - 200)
+    cards = _build_cards(scroll_area, 360, 220, len(demos), cols=3, gutter=24)
+    scroll_y = 0
+    scroll_min = 0
+    last_card = cards[-1]
+    content_height = last_card.base_rect.bottom - scroll_area.y
+    scroll_max = max(0, content_height - scroll_area.height)
     bg_color = Color(12, 12, 22)
     heading_font = pygame.font.SysFont("Arial", 32, bold=True)
     sub_font = pygame.font.SysFont("Arial", 20)
@@ -85,6 +92,9 @@ def run_app_menu() -> None:
                 running = False
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 running = False
+            elif event.type == pygame.MOUSEWHEEL:
+                scroll_y -= event.y * 30
+                scroll_y = max(scroll_min, min(scroll_y, scroll_max))
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 pos = event.pos
                 # Sandbox button
@@ -118,31 +128,43 @@ def run_app_menu() -> None:
         pygame.draw.rect(screen, (40, 120, 220), sandbox_btn, border_radius=8)
         screen.blit(card_title.render("Open Sandbox", True, (255, 255, 255)), (sandbox_btn.x + 16, sandbox_btn.y + 14))
 
-        # Update hover
+        # Update hover and positions with scrolling
         for card in cards:
+            card.rect = card.base_rect.move(0, -scroll_y)
             card.hover = card.rect.collidepoint(mouse_pos)
 
-        # Update and render previews
+        # Clip to scroll area
+        viewport = pygame.Surface((scroll_area.width, scroll_area.height), pygame.SRCALPHA)
+        viewport.fill((0, 0, 0, 0))
         for card in cards:
-            # spin preview shapes lightly
+            if card.rect.bottom < scroll_area.top or card.rect.top > scroll_area.bottom:
+                continue
             shape = preview_shapes[card.index]
             if hasattr(shape, "rotate"):
                 shape.rotate(xy=dt * 0.4, xw=dt * 0.35, yw=dt * 0.3, zw=dt * 0.25)
 
+            local_rect = card.rect.move(-scroll_area.x, -scroll_area.y)
             bg = (24, 24, 36) if card.hover else (16, 16, 26)
-            pygame.draw.rect(screen, bg, card.rect, border_radius=10)
-            pygame.draw.rect(screen, (60, 160, 255) if card.hover else (60, 60, 80), card.rect, 2, border_radius=10)
+            pygame.draw.rect(viewport, bg, local_rect, border_radius=10)
+            pygame.draw.rect(
+                viewport,
+                (60, 160, 255) if card.hover else (60, 60, 80),
+                local_rect,
+                2,
+                border_radius=10,
+            )
 
-            preview_surface = pygame.Surface((card.rect.width, card.rect.height - 60), pygame.SRCALPHA)
+            preview_surface = pygame.Surface((local_rect.width, local_rect.height - 60), pygame.SRCALPHA)
             _render_preview(preview_surface, shape, Color(bg[0], bg[1], bg[2]))
-            screen.blit(preview_surface, (card.rect.x, card.rect.y))
+            viewport.blit(preview_surface, (local_rect.x, local_rect.y))
 
-            # Title/description
-            text_y = card.rect.y + card.rect.height - 56
-            screen.blit(card_title.render(demos[card.index].name, True, (230, 230, 240)), (card.rect.x + 10, text_y))
+            text_y = local_rect.y + local_rect.height - 56
+            viewport.blit(card_title.render(demos[card.index].name, True, (230, 230, 240)), (local_rect.x + 10, text_y))
             text_y += 20
             desc = card_desc.render(demos[card.index].description[:60], True, (200, 200, 210))
-            screen.blit(desc, (card.rect.x + 10, text_y))
+            viewport.blit(desc, (local_rect.x + 10, text_y))
+
+        screen.blit(viewport, scroll_area.topleft)
 
         pygame.display.flip()
 

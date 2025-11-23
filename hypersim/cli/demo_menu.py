@@ -23,6 +23,7 @@ from hypersim.objects import (
     Mobius4D,
     IcosaPrism,
     PenteractFrame,
+    DodecaPrism,
 )
 from hypersim.visualization.renderers.pygame import Color, PygameRenderer
 
@@ -122,6 +123,15 @@ def get_demo_entries() -> List[DemoEntry]:
             line_width=1,
             category="Products / prisms",
             info="Two icosahedra offset in W and connected vertex-to-vertex. Base layer: 12 vertices, 30 edges; doubled to 24 verts plus 12 vertical links (90 edges total).",
+        ),
+        DemoEntry(
+            name="Dodecahedron Prism",
+            description="Dodecahedron extruded along W; 40 vertices, 120 edges.",
+            factory=lambda: DodecaPrism(size=1.0, height=1.0),
+            color=Color(255, 235, 180),
+            line_width=2,
+            category="Products / prisms",
+            info="Two dodecahedra offset in W and linked vertex-to-vertex. Base layer: 20 vertices, 30 edges; doubled to 40 verts plus 20 vertical links (120 edges total).",
         ),
         DemoEntry(
             name="Penteract Frame",
@@ -315,7 +325,7 @@ def _run_demo_menu_internal(start_index: int = 0) -> None:
         if state["mode"] == "preview":
             controls = "Enter/Space: start viewer   Up/Down/Left/Right: choose demo   Esc: quit"
         else:
-            controls = "Left/Right: cycle demos   Space: reset demo   M: back to menu   Drag+LMB: orbit   +/-: zoom   Z/X: move W   Esc: quit"
+            controls = "Left/Right: cycle demos   Space: reset demo   M/B: back to menu   Drag+LMB: orbit   +/-: zoom   Z/X: move W   Esc: quit"
         screen.blit(font_body.render(controls, True, (170, 180, 200)), (18, text_y))
 
         # On preview, show a scrollable list on the right for quick reference
@@ -390,6 +400,9 @@ def _run_demo_menu_internal(start_index: int = 0) -> None:
                 # Delegate to input handler logic
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
+                        running = False
+                        continue
+                    if event.key in (pygame.K_b, pygame.K_m):
                         running = False
                         continue
                     if event.key == pygame.K_i:
