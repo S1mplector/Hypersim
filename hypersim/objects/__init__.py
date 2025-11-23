@@ -11,6 +11,8 @@ from .simplex_prism import SimplexPrism  # noqa: F401
 from .rectified_tesseract import RectifiedTesseract  # noqa: F401
 from .cube_prism import CubePrism  # noqa: F401
 from .spherinder import Spherinder  # noqa: F401
+from .mobius_4d import Mobius4D  # noqa: F401
+from .icosa_prism import IcosaPrism  # noqa: F401
 
 __all__ = [
     'Simplex4D',
@@ -24,4 +26,6 @@ __all__ = [
     'RectifiedTesseract',
     'CubePrism',
     'Spherinder',
+    'Mobius4D',
+    'IcosaPrism',
 ]

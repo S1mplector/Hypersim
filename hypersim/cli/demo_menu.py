@@ -20,6 +20,8 @@ from hypersim.objects import (
     RectifiedTesseract,
     CubePrism,
     Spherinder,
+    Mobius4D,
+    IcosaPrism,
 )
 from hypersim.visualization.renderers.pygame import Color, PygameRenderer
 
@@ -108,6 +110,15 @@ def run_demo_menu() -> None:
             info="Cartesian product of a cube and a segment in W. Two cubes linked vertex-to-vertex along W. 16 vertices, 48 edges.",
         ),
         DemoEntry(
+            name="Icosahedron Prism",
+            description="Regular icosahedron duplicated and linked along W.",
+            factory=lambda: IcosaPrism(size=1.0, height=1.0),
+            color=Color(255, 210, 150),
+            line_width=1,
+            category="Products / prisms",
+            info="Two icosahedra offset in W and connected vertex-to-vertex. Base layer: 12 vertices, 30 edges; doubled to 24 verts plus 12 vertical links (90 edges total).",
+        ),
+        DemoEntry(
             name="Hypercube Grid (3x3x3x3)",
             description="Regular lattice in 4D; edges connect immediate neighbors.",
             factory=lambda: HypercubeGrid(divisions=3, size=1.0),
@@ -133,6 +144,15 @@ def run_demo_menu() -> None:
             line_width=1,
             category="Manifolds / surfaces",
             info="Parametric surface: (r cosθ sinφ, r sinθ sinφ, r cosφ, w) with w∈{-h/2,+h/2}. Two spherical skins connected across W approximate the spherinder hull.",
+        ),
+        DemoEntry(
+            name="Möbius Band (4D)",
+            description="A Möbius strip embedded in 4D to resolve self-intersection.",
+            factory=lambda: Mobius4D(radius=1.0, width=0.5, segments_u=72, segments_v=14),
+            color=Color(255, 220, 160),
+            line_width=1,
+            category="Manifolds / surfaces",
+            info="Embedded Möbius band: ( (R+v cos u/2)cos u, (R+v cos u/2)sin u, v sin u/2, 0.8 v sin(u/2+π/4) ), with v∈[-w/2,w/2], u∈[0,2π). Wrap connects v reversed to create the single-sided strip.",
         ),
     ]
 
@@ -276,7 +296,7 @@ def run_demo_menu() -> None:
         if state["mode"] == "preview":
             controls = "Enter/Space: start viewer   Up/Down/Left/Right: choose demo   Esc: quit"
         else:
-            controls = "Left/Right: cycle demos   Space: reset demo   M: back to menu   Drag+LMB: orbit   +/-: zoom   Esc: quit"
+            controls = "Left/Right: cycle demos   Space: reset demo   M: back to menu   Drag+LMB: orbit   +/-: zoom   Z/X: move W   Esc: quit"
         screen.blit(font_body.render(controls, True, (170, 180, 200)), (18, text_y))
 
         # On preview, show a scrollable list on the right for quick reference
