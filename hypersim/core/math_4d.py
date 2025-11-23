@@ -24,7 +24,7 @@ def create_vector_4d(x: float = 0.0, y: float = 0.0, z: float = 0.0, w: float = 
     return np.array([x, y, z, w], dtype=np.float32)
 
 def create_translation_matrix_4d(x: float = 0.0, y: float = 0.0, z: float = 0.0, w: float = 0.0) -> Matrix4D:
-    """Create a 4D translation matrix.
+    """Create a 4D translation matrix (homogeneous form).
     
     Args:
         x: Translation along X axis
@@ -34,6 +34,12 @@ def create_translation_matrix_4d(x: float = 0.0, y: float = 0.0, z: float = 0.0,
         
     Returns:
         A 4x4 translation matrix
+    
+    Note:
+        This matrix assumes homogeneous coordinates (the last component set to 1)
+        rather than representing a true 4D translation on (x, y, z, w) positions.
+        The default Shape4D pipeline applies translation separately to avoid this
+        ambiguity.
     """
     matrix = np.eye(4, dtype=np.float32)
     matrix[0, 3] = x

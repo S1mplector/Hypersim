@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import pygame
 import numpy as np
-from typing import Any, Optional, List
+from typing import Any, List, Optional, Sequence
 
+from hypersim.core.math_4d import Vector4D
 from ..graphics.color import Color
 from ..graphics.scene.scene import Scene, Renderable
 from .camera import Camera
@@ -140,71 +141,74 @@ class PygameRenderer:
         
         # Clean up
         pygame.quit()
-    
+
     # Convenience methods for common operations
     def draw_line_4d(
-        self, 
-        start: Vector4D, 
-        end: Vector4D, 
-        color: Color, 
-        width: int = 1
+        self,
+        start: Vector4D,
+        end: Vector4D,
+        color: Color | Sequence[int] | None,
+        width: int = 1,
     ) -> None:
-        """Draw a 4D line.
-        
-        Args:
-            start: Start point in 4D space
-            end: End point in 4D space
-            color: Line color
-            width: Line width in pixels
-        """
+        """Draw a 4D line."""
         from ..graphics.primitives.lines import draw_line_4d as draw_line
+
         draw_line(
-            self.screen, 
-            start, 
-            end, 
-            color, 
-            width, 
-            camera=self.camera, 
-            zbuffer=self.scene.zbuffer
+            self.screen,
+            start,
+            end,
+            self._coerce_color(color, Color(255, 255, 255)),
+            width,
+            camera=self.camera,
+            zbuffer=self.scene.zbuffer,
         )
-    
+
     def render_hypercube(
-        self, 
-        hypercube: Any, 
-        color: Color = Color(0, 255, 0), 
-        width: int = 1
+        self,
+        hypercube: Any,
+        color: Color | Sequence[int] | None = None,
+        width: int = 1,
     ) -> None:
-        """Render a hypercube.
-        
-        Args:
-            hypercube: Hypercube object with 'edges' and 'vertices' attributes
-            color: Edge color
-            width: Line width in pixels
-        """
-        transform = getattr(hypercube, "transform", np.eye(4, dtype=np.float32))
-        for a, b in hypercube.edges:
-            start = transform @ hypercube.vertices[a]
-            end = transform @ hypercube.vertices[b]
-            self.draw_line_4d(start, end, color, width)
+        """Render a hypercube."""
+        self.render_4d_object(hypercube, color=color, width=width)
 
     def render_simplex(
         self,
         simplex: Any,
-        color: Color = Color(255, 140, 0),
+        color: Color | Sequence[int] | None = None,
         width: int = 1,
     ) -> None:
         """Render a 4-D simplex (5-cell)."""
-        verts = simplex.get_transformed_vertices()
-        for a, b in simplex.edges:
-            self.draw_line_4d(verts[a], verts[b], color, width)
+        self.render_4d_object(simplex, color=color, width=width)
 
     def render_4d_object(
         self,
         obj: Any,
-        color: Color = Color(0, 255, 255),
+        color: Color | Sequence[int] | None = None,
         width: int = 1,
     ) -> None:
         """Generic renderer for any polytope with `edges` and `get_transformed_vertices()`."""
         verts = obj.get_transformed_vertices()
+        resolved_color = self._coerce_color(
+            color if color is not None else getattr(obj, "color", None),
+            Color(0, 255, 255),
+        )
+        resolved_width = getattr(obj, "line_width", width)
+
         for a, b in obj.edges:
-            self.draw_line_4d(verts[a], verts[b], color, width)
+            self.draw_line_4d(verts[a], verts[b], resolved_color, resolved_width)
+
+    # Internal helpers
+    @staticmethod
+    def _coerce_color(value: Color | Sequence[int] | None, fallback: Color) -> Color:
+        """Convert tuples/lists into a Color instance."""
+        if isinstance(value, Color):
+            return value
+        if isinstance(value, (list, tuple)):
+            if len(value) == 3:
+                r, g, b = value
+                return Color(int(r), int(g), int(b))
+            if len(value) == 4:
+                r, g, b, a = value
+                return Color(int(r), int(g), int(b), int(a))
+        return fallback

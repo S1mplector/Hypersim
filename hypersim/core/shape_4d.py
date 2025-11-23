@@ -1,13 +1,13 @@
-"""Abstract base class for all 4D objects in the hypersim project.
-
-This module defines the Shape4D abstract base class that provides a common interface
-for all 4D geometric objects in the simulation.
-"""
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Optional, Dict, Any
+from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from dataclasses import dataclass, field
-from .math_4d import Matrix4D, Vector4D, create_rotation_matrix_4d, create_translation_matrix_4d, create_scale_matrix_4d
+from .math_4d import (
+    Matrix4D,
+    Vector4D,
+    create_rotation_matrix_4d,
+    create_scale_matrix_4d,
+)
 
 @dataclass
 class Shape4D(ABC):
@@ -26,6 +26,7 @@ class Shape4D(ABC):
     })
     scale: float = 1.0
     color: Tuple[int, int, int] = (255, 255, 255)
+    line_width: int = 1
     visible: bool = True
     
     # Transformation matrix cache
@@ -79,6 +80,11 @@ class Shape4D(ABC):
         """Get the number of faces in the shape."""
         return len(self.faces)
 
+    @property
+    def cell_count(self) -> int:
+        """Get the number of 4D cells in the shape."""
+        return len(self.cells)
+
     # Convenience getters (compat with overlays/UI expecting methods)
     def get_vertex_count(self) -> int:
         """Return vertex count (method form)."""
@@ -92,6 +98,10 @@ class Shape4D(ABC):
         """Return face count (method form)."""
         return self.face_count
 
+    def get_cell_count(self) -> int:
+        """Return cell count (method form)."""
+        return self.cell_count
+
     def get_position(self) -> Vector4D:
         """Return current position vector."""
         return self.position
@@ -104,15 +114,17 @@ class Shape4D(ABC):
         return self._transform_matrix
     
     def _update_transform_matrix(self) -> None:
-        """Update the transformation matrix based on current position, rotation, and scale."""
+        """Update the linear (rotation/scale) portion of the transform matrix.
+
+        Translation is handled separately when applying the transform so we do not
+        need to rely on homogeneous coordinates here.
+        """
         # Start with identity matrix
-        self._transform_matrix = np.eye(4, dtype=np.float32)
-        
+        transform = np.eye(4, dtype=np.float32)
+
         # Apply rotations (order matters!)
-        # Apply each rotation one at a time
         for plane, angle in self.rotation.items():
             if angle != 0:
-                # Create a rotation matrix for this specific plane
                 rot_args = {
                     'angle_xy': 0.0,
                     'angle_xz': 0.0,
@@ -121,32 +133,21 @@ class Shape4D(ABC):
                     'angle_yw': 0.0,
                     'angle_zw': 0.0
                 }
-                # Set the angle for the current plane
                 rot_args[f'angle_{plane}'] = angle
-                
-                # Create and apply the rotation matrix for this plane
                 rot_matrix = create_rotation_matrix_4d(**rot_args)
-                self._transform_matrix = rot_matrix @ self._transform_matrix
-        
-        # Apply scale
+                transform = rot_matrix @ transform
+
+        # Apply uniform scale
         if self.scale != 1.0:
             scale_matrix = create_scale_matrix_4d(
-                sx=self.scale, 
-                sy=self.scale, 
-                sz=self.scale, 
+                sx=self.scale,
+                sy=self.scale,
+                sz=self.scale,
                 sw=self.scale
             )
-            self._transform_matrix = scale_matrix @ self._transform_matrix
-            
-        # Apply translation (applied last in this implementation)
-        translation = create_translation_matrix_4d(
-            x=self.position[0],
-            y=self.position[1],
-            z=self.position[2],
-            w=self.position[3]
-        )
-        self._transform_matrix = translation @ self._transform_matrix
-        
+            transform = scale_matrix @ transform
+
+        self._transform_matrix = transform
         self._transform_dirty = False
     
     def set_position(self, x=None, y=None, z=None, w=None, position=None) -> None:
@@ -199,8 +200,9 @@ class Shape4D(ABC):
                         and values are rotation angles in radians.
         """
         for plane, angle in rotations.items():
-            if plane in self.rotation:
-                self.rotation[plane] = (self.rotation[plane] + angle) % (2 * np.pi)
+            key = plane[6:] if plane.startswith("angle_") else plane
+            if key in self.rotation:
+                self.rotation[key] = (self.rotation[key] + angle) % (2 * np.pi)
                 self._transform_dirty = True
     
     def set_rotation(self, **rotations: float) -> None:
@@ -211,8 +213,9 @@ class Shape4D(ABC):
                         and values are rotation angles in radians.
         """
         for plane, angle in rotations.items():
-            if plane in self.rotation:
-                self.rotation[plane] = angle % (2 * np.pi)
+            key = plane[6:] if plane.startswith("angle_") else plane
+            if key in self.rotation:
+                self.rotation[key] = angle % (2 * np.pi)
                 self._transform_dirty = True
     
     def set_scale(self, scale: float) -> None:
@@ -223,7 +226,13 @@ class Shape4D(ABC):
     def get_transformed_vertices(self) -> List[Vector4D]:
         """Get the vertices transformed by the current transformation matrix."""
         transform = self.get_transform_matrix()
-        return [transform @ vertex for vertex in self.vertices]
+        translated = []
+        for vertex in self.vertices:
+            v = transform @ vertex
+            if np.any(self.position):
+                v = v + self.position
+            translated.append(v)
+        return translated
     
     def get_bounding_box(self) -> Tuple[Vector4D, Vector4D]:
         """Get the axis-aligned bounding box of the shape.
@@ -258,3 +267,19 @@ class Shape4D(ABC):
         
         distance = np.linalg.norm(center - camera_position)
         return distance - radius < 1.0 / np.tan(fov/2)  # Simplified visibility check
+
+    # Rendering 
+    def render(self, renderer: Any) -> None:
+        """Default render hook so shapes can be added directly to scenes."""
+        render_fn = getattr(renderer, "render_4d_object", None)
+        if not callable(render_fn):
+            return
+        color = getattr(self, "color", (255, 255, 255))
+        width = getattr(self, "line_width", 1)
+        render_fn(self, color=color, width=width)
+
+    # Optional geometry slots
+    @property
+    def cells(self) -> List[Tuple[int, ...]]:
+        """Return 4D cells; override in subclasses."""
+        return []

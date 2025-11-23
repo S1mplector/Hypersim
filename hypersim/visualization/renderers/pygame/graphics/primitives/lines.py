@@ -5,7 +5,7 @@ This module provides functions for drawing various types of lines and curves.
 
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Any, Optional, Tuple
 
 import numpy as np
 import pygame
@@ -71,11 +71,11 @@ def draw_line_4d(
     
     # Skip if line is completely outside the viewport with some padding
     viewport_padding = 100  # pixels
-    width, height = surface.get_size()
+    surface_width, surface_height = surface.get_size()
     min_x = -viewport_padding
-    max_x = width + viewport_padding
+    max_x = surface_width + viewport_padding
     min_y = -viewport_padding
-    max_y = height + viewport_padding
+    max_y = surface_height + viewport_padding
     
     # Cohen-Sutherland line clipping
     def compute_outcode(x, y):

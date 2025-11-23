@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import List, Any, Optional, Protocol, runtime_checkable
 import numpy as np
 
-from hypersim.core.math_4d import Vector4D
 from ...graphics.color import Color
 
 __all__ = ["Scene", "Renderable"]
@@ -85,5 +84,9 @@ class Scene:
         
         # Render all objects
         for obj in self.objects:
-            if hasattr(obj, 'render'):
-                obj.render(renderer)
+            render_fn = getattr(obj, "render", None)
+            if callable(render_fn):
+                render_fn(renderer)
+            elif hasattr(renderer, "render_4d_object") and hasattr(obj, "get_transformed_vertices"):
+                # Fallback for simple wireframe objects that expose vertices/edges
+                renderer.render_4d_object(obj)

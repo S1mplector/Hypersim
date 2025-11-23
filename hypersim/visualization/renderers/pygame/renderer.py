@@ -8,8 +8,7 @@ lives here; the package root simply re-exports :class:`PygameRenderer` and
 """
 from __future__ import annotations
 
-from typing import List, Tuple, Any
-from dataclasses import dataclass
+from typing import Any, List, Tuple
 import numpy as np
 import pygame
 
@@ -17,11 +16,10 @@ from hypersim.core.math_4d import (
     Vector4D,
     create_vector_4d,
     create_rotation_matrix_4d,
-    perspective_projection_4d_to_3d,
     create_look_at_matrix,
 )
 
-from .color import Color  # re-use shared colour helper
+from .graphics.color import Color  # reuse the unified Color helper
 
 __all__ = ["PygameRenderer"]
 
@@ -207,10 +205,10 @@ class PygameRenderer:
         for obj in self.objects:
             if hasattr(obj, "rotate"):
                 obj.rotate(
-                    angle_xy=dt * 0.4,  # XY rotation (3D spin)
-                    angle_xw=dt * 0.6,  # XW rotation (4D fold)
-                    angle_yw=dt * 0.5,  # YW rotation (4D fold)
-                    angle_zw=dt * 0.3,  # ZW rotation (4D spin)
+                    xy=dt * 0.4,  # XY rotation (3D spin)
+                    xw=dt * 0.6,  # XW rotation (4D fold)
+                    yw=dt * 0.5,  # YW rotation (4D fold)
+                    zw=dt * 0.3,  # ZW rotation (4D spin)
                 )
         
         # FPS counter update
