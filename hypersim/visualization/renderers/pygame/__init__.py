@@ -24,6 +24,10 @@ Basic usage::
     # Run the render loop
     renderer.run()
 
+For the improved renderer with more features::
+
+    from hypersim.visualization.renderers.pygame import Renderer, RendererConfig, RenderMode
+
 The implementation is organized into several submodules:
 
 - :mod:`.core`: Core rendering components (renderer, camera, shaders)
@@ -38,7 +42,40 @@ from __future__ import annotations
 from .graphics.color import Color
 from .core.renderer import PygameRenderer
 
+# New improved renderer components
+from .renderer_v2 import Renderer, RendererConfig, PygameRendererV2
+from .render_pipeline import RenderPipeline, RenderStyle, RenderMode, RenderStats
+from .camera_4d import Camera4D
+from .hud import HUD, HUDStyle, Anchor
+from .input_manager import InputManager, InputAction
+from .face_renderer import FaceRenderer
+from .stereo import StereoRenderer, StereoMode
+
 __all__: list[str] = [
+    # Legacy
     "Color",
     "PygameRenderer",
+    # New renderer
+    "Renderer",
+    "RendererConfig",
+    "PygameRendererV2",
+    # Pipeline
+    "RenderPipeline",
+    "RenderStyle",
+    "RenderMode",
+    "RenderStats",
+    # Camera
+    "Camera4D",
+    # HUD
+    "HUD",
+    "HUDStyle",
+    "Anchor",
+    # Input
+    "InputManager",
+    "InputAction",
+    # Face rendering
+    "FaceRenderer",
+    # Stereo
+    "StereoRenderer",
+    "StereoMode",
 ]
