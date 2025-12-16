@@ -10,9 +10,27 @@ interfaces.
 from .scene import Scene  # noqa: F401
 from .simulation import Simulation  # noqa: F401
 from .plugins import PluginRegistry  # noqa: F401
+from .animation import (  # noqa: F401
+    Animation,
+    AnimationTrack,
+    AnimationSequence,
+    Keyframe,
+    EasingFunction,
+    create_rotation_animation,
+    create_position_animation,
+    create_scale_pulse,
+)
 
 __all__ = [
     "Scene",
     "Simulation",
     "PluginRegistry",
+    "Animation",
+    "AnimationTrack",
+    "AnimationSequence",
+    "Keyframe",
+    "EasingFunction",
+    "create_rotation_animation",
+    "create_position_animation",
+    "create_scale_pulse",
 ]

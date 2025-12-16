@@ -21,6 +21,9 @@ from .octa_prism import OctaPrism  # noqa: F401
 from .torus_knot_4d import TorusKnot4D  # noqa: F401
 from .hopf_link_4d import HopfLink4D  # noqa: F401
 from .one_hundred_twenty_cell import OneHundredTwentyCell  # noqa: F401
+from .grand_antiprism import GrandAntiprism  # noqa: F401
+from .runcinated_tesseract import RuncinatedTesseract  # noqa: F401
+from .truncated_tesseract import TruncatedTesseract  # noqa: F401
 
 __all__ = [
     'Simplex4D',
@@ -44,4 +47,7 @@ __all__ = [
     'TorusKnot4D',
     'HopfLink4D',
     'OneHundredTwentyCell',
+    'GrandAntiprism',
+    'RuncinatedTesseract',
+    'TruncatedTesseract',
 ]
