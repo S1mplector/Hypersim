@@ -33,6 +33,10 @@ class Shape4D(ABC):
     _transform_matrix: Optional[Matrix4D] = field(init=False, default=None)
     _transform_dirty: bool = field(init=False, default=True)
     
+    # Vertex cache for performance
+    _cached_vertices: Optional[List[Vector4D]] = field(init=False, default=None)
+    _vertices_dirty: bool = field(init=False, default=True)
+    
     # Abstract properties
     @property
     @abstractmethod
@@ -186,11 +190,13 @@ class Shape4D(ABC):
             self.position = new_pos
             
         self._transform_dirty = True
+        self._vertices_dirty = True
     
     def translate(self, dx: float, dy: float, dz: float, dw: float) -> None:
         """Translate the shape by the given deltas."""
         self.position += np.array([dx, dy, dz, dw], dtype=np.float32)
         self._transform_dirty = True
+        self._vertices_dirty = True
     
     def rotate(self, **rotations: float) -> None:
         """Rotate the shape in one or more planes.
@@ -204,6 +210,7 @@ class Shape4D(ABC):
             if key in self.rotation:
                 self.rotation[key] = (self.rotation[key] + angle) % (2 * np.pi)
                 self._transform_dirty = True
+                self._vertices_dirty = True
     
     def set_rotation(self, **rotations: float) -> None:
         """Set the rotation of the shape in one or more planes.
@@ -217,22 +224,40 @@ class Shape4D(ABC):
             if key in self.rotation:
                 self.rotation[key] = angle % (2 * np.pi)
                 self._transform_dirty = True
+                self._vertices_dirty = True
     
     def set_scale(self, scale: float) -> None:
         """Set the scale of the shape."""
         self.scale = scale
         self._transform_dirty = True
+        self._vertices_dirty = True
     
     def get_transformed_vertices(self) -> List[Vector4D]:
-        """Get the vertices transformed by the current transformation matrix."""
+        """Get the vertices transformed by the current transformation matrix.
+        
+        Results are cached for performance. Cache is invalidated when
+        position, rotation, or scale changes.
+        """
+        if not self._vertices_dirty and self._cached_vertices is not None:
+            return self._cached_vertices
+        
         transform = self.get_transform_matrix()
         translated = []
+        has_position = np.any(self.position)
         for vertex in self.vertices:
             v = transform @ vertex
-            if np.any(self.position):
+            if has_position:
                 v = v + self.position
             translated.append(v)
+        
+        self._cached_vertices = translated
+        self._vertices_dirty = False
         return translated
+    
+    def invalidate_cache(self) -> None:
+        """Manually invalidate the vertex cache."""
+        self._vertices_dirty = True
+        self._transform_dirty = True
     
     def get_bounding_box(self) -> Tuple[Vector4D, Vector4D]:
         """Get the axis-aligned bounding box of the shape.

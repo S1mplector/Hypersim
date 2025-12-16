@@ -70,9 +70,60 @@ class Hypercube(Shape4D):
                     edges.append((index, j))
         self._edges: List[Tuple[int, int]] = edges
 
-        # For now faces and cells are omitted; they can be derived if needed later
-        self._faces: List[Tuple[int, ...]] = []
-        self._cells: List[Tuple[int, ...]] = []
+        # Generate faces: each face is a square in 4D (4 vertices differing in 2 coords)
+        # A tesseract has 24 square faces
+        self._faces: List[Tuple[int, ...]] = self._generate_faces(idx_to_vec)
+        
+        # Generate cells: each cell is a cube (8 vertices differing in 3 coords)
+        # A tesseract has 8 cubic cells
+        self._cells: List[Tuple[int, ...]] = self._generate_cells(idx_to_vec)
+
+    def _generate_faces(self, idx_to_vec) -> List[Tuple[int, ...]]:
+        """Generate the 24 square faces of the tesseract."""
+        faces = []
+        # For each pair of axes, we have faces in that plane
+        axes = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
+        for ax1, ax2 in axes:
+            # Fixed axes are the other two
+            other_axes = [i for i in range(4) if i not in (ax1, ax2)]
+            # For each combination of fixed values
+            for f0 in [0, 1]:
+                for f1 in [0, 1]:
+                    # Get the 4 vertices of this face
+                    face_verts = []
+                    for v0 in [0, 1]:
+                        for v1 in [0, 1]:
+                            coords = [0, 0, 0, 0]
+                            coords[ax1] = v0
+                            coords[ax2] = v1
+                            coords[other_axes[0]] = f0
+                            coords[other_axes[1]] = f1
+                            idx = (coords[0] << 3) | (coords[1] << 2) | (coords[2] << 1) | coords[3]
+                            face_verts.append(idx)
+                    # Order vertices for proper winding (square)
+                    faces.append((face_verts[0], face_verts[1], face_verts[3], face_verts[2]))
+        return faces
+
+    def _generate_cells(self, idx_to_vec) -> List[Tuple[int, ...]]:
+        """Generate the 8 cubic cells of the tesseract."""
+        cells = []
+        # Each cell is defined by fixing one axis at 0 or 1
+        for fixed_axis in range(4):
+            for fixed_val in [0, 1]:
+                cell_verts = []
+                for bits in range(8):  # 2^3 = 8 vertices per cube
+                    coords = [0, 0, 0, 0]
+                    bit_idx = 0
+                    for axis in range(4):
+                        if axis == fixed_axis:
+                            coords[axis] = fixed_val
+                        else:
+                            coords[axis] = (bits >> bit_idx) & 1
+                            bit_idx += 1
+                    idx = (coords[0] << 3) | (coords[1] << 2) | (coords[2] << 1) | coords[3]
+                    cell_verts.append(idx)
+                cells.append(tuple(cell_verts))
+        return cells
 
     @property
     def vertices(self) -> List[Vector4D]:

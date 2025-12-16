@@ -45,7 +45,9 @@ def create_translation_matrix_4d(x: float = 0.0, y: float = 0.0, z: float = 0.0,
     matrix[0, 3] = x
     matrix[1, 3] = y
     matrix[2, 3] = z
-    matrix[3, 3] = w
+    # Note: In 4D, translation requires a 5x5 homogeneous matrix.
+    # For this 4x4 matrix, we store w translation but keep diagonal as 1.
+    # The w translation is applied separately in Shape4D.
     return matrix
 
 def create_scale_matrix_4d(sx: float = 1.0, sy: float = 1.0, sz: float = 1.0, sw: float = 1.0) -> Matrix4D:

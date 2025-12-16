@@ -8,7 +8,8 @@ lives here; the package root simply re-exports :class:`PygameRenderer` and
 """
 from __future__ import annotations
 
-from typing import Any, List, Tuple
+from dataclasses import dataclass, field
+from typing import Any, List, Tuple, Optional, TYPE_CHECKING
 import numpy as np
 import pygame
 
@@ -21,7 +22,20 @@ from hypersim.core.math_4d import (
 
 from .graphics.color import Color  # reuse the unified Color helper
 
-__all__ = ["PygameRenderer"]
+if TYPE_CHECKING:
+    from hypersim.core.shape_4d import Shape4D
+
+__all__ = ["PygameRenderer", "ProjectionConfig"]
+
+
+@dataclass
+class ProjectionConfig:
+    """Configuration for 4D to 2D projection."""
+    distance: float = 5.0
+    scale: float = 120.0
+    w_scale_factor: float = 0.3
+    near_clip: float = 0.05
+    fov: float = 1.0
 
 
 class PygameRenderer:
@@ -34,9 +48,13 @@ class PygameRenderer:
         title: str = "4D Renderer",
         background_color: Color | None = None,
         distance: float = 5.0,
+        projection_config: Optional[ProjectionConfig] = None,
+        auto_spin: bool = True,
     ) -> None:
         if background_color is None:
             background_color = Color(0, 0, 0)
+        if projection_config is None:
+            projection_config = ProjectionConfig(distance=distance)
 
         # Pygame window -----------------------------------------------------------
         pygame.init()
@@ -48,6 +66,8 @@ class PygameRenderer:
         self.height = height
         self.background_color = background_color
         self.distance = distance
+        self.projection = projection_config
+        self.auto_spin = auto_spin
         self.clock = pygame.time.Clock()
 
         # Camera ------------------------------------------------------------------
@@ -83,17 +103,22 @@ class PygameRenderer:
     # Projection helpers
     # -----------------------------------------------------------------------
     def _project_4d_to_2d(self, p: Vector4D) -> Tuple[int, int, float]:
-        # Improved 4D projection using W-based scaling to prevent vertex collapse
+        """Project a 4D point to 2D screen coordinates.
+        
+        Uses configurable projection parameters from self.projection.
+        """
         x, y, z, w = p
         
         # Use W coordinate to scale the X,Y coordinates (prevents symmetrical collapse)
-        scale = 1.0 / (1.0 + abs(w) * 0.3)  # Scale based on W distance
+        w_factor = self.projection.w_scale_factor
+        proj_scale = self.projection.scale
+        scale = 1.0 / (1.0 + abs(w) * w_factor)
         
         # Apply scaling and convert to screen coordinates
-        screen_x = int(x * scale * 120 + self.width // 2)   # Increased scale factor
-        screen_y = int(-y * scale * 120 + self.height // 2)  # Increased scale factor
+        screen_x = int(x * scale * proj_scale + self.width // 2)
+        screen_y = int(-y * scale * proj_scale + self.height // 2)
         
-        # Use Z coordinate for depth (for potential z-buffering)
+        # Use Z coordinate for depth (for z-buffering)
         depth = z * scale
         
         return screen_x, screen_y, depth
@@ -116,43 +141,45 @@ class PygameRenderer:
     # -----------------------------------------------------------------------
     # Public API
     # -----------------------------------------------------------------------
-    def render_hypercube(self, hypercube, color: Color = Color(0, 255, 0), width: int = 1) -> None:
-        # Get the transformed vertices from the hypercube
-        transformed_vertices = hypercube.get_transformed_vertices()
-        
-        # Draw all edges using the transformed vertices
-        for a, b in hypercube.edges:
-            self.draw_line_4d(transformed_vertices[a], transformed_vertices[b], color, width)
-    
-    def render_simplex(self, simplex, color: Color = Color(255, 100, 0), width: int = 1) -> None:
-        """Render a 4D simplex object.
+    def render_4d_object(
+        self,
+        obj: "Shape4D",
+        color: Color = Color(0, 255, 255),
+        width: int = 1,
+        depth_sort: bool = False,
+    ) -> None:
+        """Render any 4D object with vertices and edges.
         
         Args:
-            simplex: The 4D simplex object to render
-            color: Color to draw the simplex edges
-            width: Line width for drawing edges
-        """
-        # Get the transformed vertices from the simplex
-        transformed_vertices = simplex.get_transformed_vertices()
-        
-        # Draw all edges using the transformed vertices
-        for a, b in simplex.edges:
-            self.draw_line_4d(transformed_vertices[a], transformed_vertices[b], color, width)
-    
-    def render_4d_object(self, obj, color: Color = Color(0, 255, 255), width: int = 1) -> None:
-        """Generic method to render any 4D object with vertices and edges.
-        
-        Args:
-            obj: Any 4D object with get_transformed_vertices() method and edges attribute
+            obj: Any Shape4D object with get_transformed_vertices() and edges
             color: Color to draw the object edges
             width: Line width for drawing edges
+            depth_sort: If True, sort edges by depth for better rendering
         """
-        # Get the transformed vertices from the object
         transformed_vertices = obj.get_transformed_vertices()
         
-        # Draw all edges using the transformed vertices
-        for a, b in obj.edges:
-            self.draw_line_4d(transformed_vertices[a], transformed_vertices[b], color, width)
+        if depth_sort:
+            # Calculate edge depths and sort back-to-front
+            edge_depths = []
+            for a, b in obj.edges:
+                mid_z = (transformed_vertices[a][2] + transformed_vertices[b][2]) / 2
+                edge_depths.append((mid_z, a, b))
+            edge_depths.sort(reverse=True)  # Back to front
+            
+            for _, a, b in edge_depths:
+                self.draw_line_4d(transformed_vertices[a], transformed_vertices[b], color, width)
+        else:
+            for a, b in obj.edges:
+                self.draw_line_4d(transformed_vertices[a], transformed_vertices[b], color, width)
+
+    # Aliases for backward compatibility
+    def render_hypercube(self, hypercube, color: Color = Color(0, 255, 0), width: int = 1) -> None:
+        """Render a hypercube. Alias for render_4d_object."""
+        self.render_4d_object(hypercube, color, width)
+
+    def render_simplex(self, simplex, color: Color = Color(255, 100, 0), width: int = 1) -> None:
+        """Render a simplex. Alias for render_4d_object."""
+        self.render_4d_object(simplex, color, width)
 
     # Event loop ---------------------------------------------------------------
     def handle_events(self) -> bool:
@@ -202,14 +229,15 @@ class PygameRenderer:
 
     def update(self, dt: float) -> None:
         # Apply continuous 4D rotations to any object that supports it
-        for obj in self.objects:
-            if hasattr(obj, "rotate"):
-                obj.rotate(
-                    xy=dt * 0.4,  # XY rotation (3D spin)
-                    xw=dt * 0.6,  # XW rotation (4D fold)
-                    yw=dt * 0.5,  # YW rotation (4D fold)
-                    zw=dt * 0.3,  # ZW rotation (4D spin)
-                )
+        if self.auto_spin:
+            for obj in self.objects:
+                if hasattr(obj, "rotate"):
+                    obj.rotate(
+                        xy=dt * 0.4,  # XY rotation (3D spin)
+                        xw=dt * 0.6,  # XW rotation (4D fold)
+                        yw=dt * 0.5,  # YW rotation (4D fold)
+                        zw=dt * 0.3,  # ZW rotation (4D spin)
+                    )
         
         # FPS counter update
         self.frame_count += 1
