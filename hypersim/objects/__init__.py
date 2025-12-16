@@ -24,6 +24,14 @@ from .one_hundred_twenty_cell import OneHundredTwentyCell  # noqa: F401
 from .grand_antiprism import GrandAntiprism  # noqa: F401
 from .runcinated_tesseract import RuncinatedTesseract  # noqa: F401
 from .truncated_tesseract import TruncatedTesseract  # noqa: F401
+from .cantellated_tesseract import CantellatedTesseract  # noqa: F401
+from .bitruncated_tesseract import BitruncatedTesseract  # noqa: F401
+from .snub_24_cell import Snub24Cell  # noqa: F401
+from .omnitruncated_tesseract import OmnitruncatedTesseract  # noqa: F401
+from .tesseractihexadecachoron import Tesseractihexadecachoron, Rectified24Cell  # noqa: F401
+from .disphenoidal_288_cell import Disphenoidal288Cell  # noqa: F401
+from .klein_bottle_4d import KleinBottle4D  # noqa: F401
+from .pentachoron import Pentachoron, FiveCell, Hypertetrahedron  # noqa: F401
 
 __all__ = [
     'Simplex4D',
@@ -50,4 +58,15 @@ __all__ = [
     'GrandAntiprism',
     'RuncinatedTesseract',
     'TruncatedTesseract',
+    'CantellatedTesseract',
+    'BitruncatedTesseract',
+    'Snub24Cell',
+    'OmnitruncatedTesseract',
+    'Tesseractihexadecachoron',
+    'Rectified24Cell',
+    'Disphenoidal288Cell',
+    'KleinBottle4D',
+    'Pentachoron',
+    'FiveCell',
+    'Hypertetrahedron',
 ]
