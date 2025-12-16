@@ -22,6 +22,11 @@ from hypersim.objects import (
     HypercubeGrid,
     Duoprism,
     SimplexPrism,
+    SixHundredCell,
+    TetraPrism,
+    OctaPrism,
+    TorusKnot4D,
+    HopfLink4D,
 )
 
 SpawnFn = Callable[[float], object]
@@ -57,6 +62,11 @@ def _spawn_map() -> Dict[int, SpawnFn]:
         pygame.K_q: lambda s: Spherinder(radius=s * 0.8, height=s * 0.8),
         pygame.K_w: lambda s: Mobius4D(radius=s, width=s * 0.4),
         pygame.K_e: lambda s: HypercubeGrid(divisions=3, size=s * 0.7),
+        pygame.K_h: lambda s: SixHundredCell(size=s * 0.6),
+        pygame.K_j: lambda s: TetraPrism(size=s, height=s * 0.7),
+        pygame.K_k: lambda s: OctaPrism(size=s, height=s * 0.7),
+        pygame.K_l: lambda s: TorusKnot4D(radius=s * 0.9, p=3, q=5, segments=180),
+        pygame.K_o: lambda s: HopfLink4D(radius=s * 0.9, segments=160),
     }
 
 
@@ -159,7 +169,7 @@ def run_sandbox() -> None:
         y += 28
         lines = [
             f"Spawn size: {spawn_size:.2f}   +/- to adjust",
-            "1-0,q,w,e: spawn shapes; C: clear",
+            "1-0,q,w,e,h,j,k,l,o: spawn shapes (H=600, J/K/L/O new); C: clear",
             "WASD/QE: move XYZ, Z/X: move W",
             "Drag+LMB: orbit camera   Esc: quit",
         ]

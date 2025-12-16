@@ -260,40 +260,75 @@ def cross_product_4d(a: Vector4D, b: Vector4D, c: Vector4D) -> Vector4D:
     return np.array([i, j, k, l], dtype=np.float32)
 
 def create_look_at_matrix(eye: Vector4D, target: Vector4D, up: Vector4D) -> Matrix4D:
-    """Create a 4D look-at matrix for camera positioning.
+    """Create an orthonormal 4D view matrix using Gram–Schmidt.
     
-    Args:
-        eye: Camera position in 4D space
-        target: Point the camera is looking at
-        up: Up direction in 4D (will be projected to be perpendicular to view direction)
-        
-    Returns:
-        4x4 view matrix
+    The returned matrix contains the view basis (rows = right, up, forward,
+    ana). Translation is not baked in; consumers should subtract the eye
+    position separately when transforming points into view space.
     """
-    # Calculate the forward vector (from target to eye)
-    forward = normalize_vector(eye - target)
-    
-    # Calculate the right vector (using up and forward)
-    right = normalize_vector(cross_product_4d(up, forward, np.zeros(4)))
-    
-    # Recalculate the up vector to be perpendicular to both forward and right
-    up = normalize_vector(cross_product_4d(forward, right, np.zeros(4)))
-    
-    # The fourth basis vector (ana) is perpendicular to the first three
-    ana = cross_product_4d(right, up, forward)
-    
-    # Create the rotation matrix
+    eps = 1e-6
+
+    def _gram_schmidt(vectors: List[np.ndarray]) -> List[np.ndarray]:
+        basis: List[np.ndarray] = []
+        for vec in vectors:
+            v = np.asarray(vec, dtype=np.float32)
+            for b in basis:
+                v = v - np.dot(v, b) * b
+            n = np.linalg.norm(v)
+            if n < eps:
+                continue
+            basis.append(v / n)
+            if len(basis) == 4:
+                break
+        return basis
+
+    # Forward points from eye toward target; fall back if degenerate
+    forward = target - eye
+    if np.linalg.norm(forward) < eps:
+        forward = np.array([0.0, 0.0, 1.0, 0.0], dtype=np.float32)
+    forward = normalize_vector(forward)
+
+    # Choose an up candidate that is not parallel to forward
+    up_candidate = np.asarray(up, dtype=np.float32)
+    if np.linalg.norm(up_candidate) < eps or abs(np.dot(up_candidate, forward)) > 0.95:
+        # Pick a fallback axis with minimal alignment to forward
+        axes = np.eye(4, dtype=np.float32)
+        for axis in axes:
+            if abs(np.dot(axis, forward)) < 0.8:
+                up_candidate = axis
+                break
+
+    # Build an orthonormal basis via Gram–Schmidt
+    candidates = [
+        forward,
+        up_candidate,
+        np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32),
+        np.array([0.0, 1.0, 0.0, 0.0], dtype=np.float32),
+        np.array([0.0, 0.0, 1.0, 0.0], dtype=np.float32),
+        np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32),
+    ]
+    basis = _gram_schmidt(candidates)
+    # Ensure we always have four basis vectors by pulling from canonical axes
+    if len(basis) < 4:
+        axes = np.eye(4, dtype=np.float32)
+        for axis in axes:
+            if len(basis) >= 4:
+                break
+            basis = _gram_schmidt(basis + [axis])
+
+    if len(basis) < 4:
+        raise ValueError("Unable to construct a stable 4D view basis")
+
+    forward = basis[0]
+    # Use the next two orthogonal vectors for right and up to preserve a
+    # meaningful orientation, and the remaining vector as the 4th axis.
+    right = basis[2] if len(basis) > 2 else basis[1]
+    up_vec = basis[1]
+    ana = basis[3]
+
     rotation = np.eye(4, dtype=np.float32)
     rotation[0, :4] = right
-    rotation[1, :4] = up
+    rotation[1, :4] = up_vec
     rotation[2, :4] = forward
     rotation[3, :4] = ana
-    
-    # Create the translation matrix
-    translation = np.eye(4, dtype=np.float32)
-    translation[:4, 3] = -eye
-    
-    # Combine rotation and translation
-    view_matrix = np.dot(rotation, translation)
-    
-    return view_matrix
+    return rotation

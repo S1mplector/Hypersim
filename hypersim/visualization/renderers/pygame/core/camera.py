@@ -70,10 +70,31 @@ class Camera:
     def _update_view_matrix(self) -> None:
         """Update the view matrix based on the current camera position and orientation."""
         self.view_matrix = create_look_at_matrix(
-            eye=self.position, 
-            target=self.target, 
-            up=self.up
+            eye=self.position,
+            target=self.target,
+            up=self.up,
         )
+
+    def world_to_view(self, point_4d: Vector4D) -> Vector4D:
+        """Transform a world-space point into camera view space."""
+        return self.view_matrix @ (point_4d - self.position)
+
+    def project_view_point(self, view_point: Vector4D) -> Tuple[int, int, float]:
+        """Project a view-space 4D point directly to 2D screen coordinates."""
+        effective_distance = max(self.distance, 0.01)
+        projected = perspective_projection_4d_to_3d(
+            view_point[np.newaxis, :],
+            effective_distance,
+        )[0]
+
+        if not np.isfinite(projected).all():
+            raise ValueError("Projection produced non-finite values")
+
+        scale = 140  # UI-friendly default scale
+        x = int(projected[0] * scale + self.width // 2)
+        y = int(-projected[1] * scale + self.height // 2)  # y-axis is inverted for screen
+
+        return x, y, projected[2]
     
     def project_4d_to_2d(self, point_4d: Vector4D) -> Tuple[int, int, float]:
         """Project a 4D point to 2D screen coordinates with depth.
@@ -85,26 +106,8 @@ class Camera:
             A tuple of (x, y, depth) where (x, y) are screen coordinates
             and depth is the distance from the camera.
         """
-        # Translate into camera space (no full look-at yet)
-        view_point = point_4d - self.position
-        
-        # Project from 4D to 3D, then to 2D screen space
-        effective_distance = max(self.distance, 0.01)
-        projected = perspective_projection_4d_to_3d(
-            view_point[np.newaxis, :],
-            effective_distance
-        )[0]
-
-        # Abort if projection blew up
-        if not np.isfinite(projected).all():
-            raise ValueError("Projection produced non-finite values")
-        
-        # Convert to screen coordinates
-        scale = 140  # UI-friendly default scale
-        x = int(projected[0] * scale + self.width // 2)
-        y = int(-projected[1] * scale + self.height // 2)  # y-axis is inverted for screen
-        
-        return x, y, projected[2]
+        view_point = self.world_to_view(point_4d)
+        return self.project_view_point(view_point)
     
     def handle_mouse_motion(self, dx: float, dy: float) -> None:
         """Handle mouse movement for camera rotation.

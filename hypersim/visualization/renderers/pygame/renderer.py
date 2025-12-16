@@ -63,7 +63,7 @@ class PygameRenderer:
 
         # Scene -------------------------------------------------------------------
         self.objects: List[Any] = []
-        self.zbuffer = np.ones((width, height), dtype=np.float32) * float("inf")
+        self.zbuffer = np.ones((height, width), dtype=np.float32) * float("inf")
 
         # HUD ---------------------------------------------------------------------
         self.font = pygame.font.Font(None, 36)

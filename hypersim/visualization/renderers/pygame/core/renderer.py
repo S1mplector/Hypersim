@@ -61,7 +61,7 @@ class PygameRenderer:
         
         # Set up scene
         self.scene = Scene(background_color)
-        self.scene.zbuffer = np.ones((width, height), dtype=np.float32) * float("inf")
+        self.scene.zbuffer = np.ones((height, width), dtype=np.float32) * float("inf")
         
         # Performance metrics
         self.clock = pygame.time.Clock()
@@ -128,7 +128,12 @@ class PygameRenderer:
             for obj in self.scene.objects:
                 if not hasattr(obj, "rotate"):
                     continue
-                if getattr(obj, "auto_spin_enabled", True) is False:
+                explicit_flag = getattr(obj, "auto_spin_enabled", None)
+                if explicit_flag is False:
+                    continue
+                # Avoid stacking rotations for objects that already drive their own motion,
+                # unless they explicitly opt into auto-spin.
+                if hasattr(obj, "update") and explicit_flag is None:
                     continue
                 rates = getattr(obj, "spin_rates", self.spin_rates)
                 try:

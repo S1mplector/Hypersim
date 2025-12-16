@@ -24,6 +24,11 @@ from hypersim.objects import (
     IcosaPrism,
     PenteractFrame,
     DodecaPrism,
+    SixHundredCell,
+    TetraPrism,
+    OctaPrism,
+    TorusKnot4D,
+    HopfLink4D,
 )
 from hypersim.visualization.renderers.pygame import Color, PygameRenderer
 
@@ -78,6 +83,15 @@ def get_demo_entries() -> List[DemoEntry]:
             line_width=2,
             category="Regular polytopes",
             info="Self-dual regular 4-polytope. 24 vertices: 8 axis points ±1 and 16 half-points (±1/2,±1/2,±1/2,±1/2). 96 edges; cells are octahedra.",
+        ),
+        DemoEntry(
+            name="600-cell (Hexacosichoron)",
+            description="120 vertices, 720 edges; golden-ratio rich coordinates.",
+            factory=lambda: SixHundredCell(size=1.0),
+            color=Color(255, 200, 120),
+            line_width=1,
+            category="Regular polytopes",
+            info="Regular 4-polytope with 120 vertices, 720 edges, 1200 triangular faces, 600 tetrahedral cells. Coordinates mix 0, ±1/2, ±φ/2, ±1/(2φ); rendered here as a wireframe skeleton.",
         ),
         DemoEntry(
             name="Rectified Tesseract",
@@ -152,6 +166,42 @@ def get_demo_entries() -> List[DemoEntry]:
             info="Grid on [-size, size]^4 with nearest-neighbor edges in each axis direction. Vertices = divisions^4; edges = 4*(divisions-1)*divisions^3.",
         ),
         DemoEntry(
+            name="Tetrahedron Prism",
+            description="Two tetrahedra offset in W and joined vertex-to-vertex.",
+            factory=lambda: TetraPrism(size=1.1, height=0.75),
+            color=Color(255, 200, 160),
+            line_width=2,
+            category="Products / prisms",
+            info="Prism over a tetrahedron: 8 vertices; edges include two tetra layers and 4 vertical links. Useful as a compact prism baseline.",
+        ),
+        DemoEntry(
+            name="Octahedron Prism",
+            description="Two octahedra separated in W and linked.",
+            factory=lambda: OctaPrism(size=1.1, height=0.8),
+            color=Color(190, 230, 255),
+            line_width=2,
+            category="Products / prisms",
+            info="Prism over an octahedron: 12 vertices. Each layer is a 3D cross polytope, with vertical edges connecting matching vertices.",
+        ),
+        DemoEntry(
+            name="Torus Knot (p=3, q=5)",
+            description="(3,5) torus knot traced on a Clifford torus loop.",
+            factory=lambda: TorusKnot4D(p=3, q=5, segments=200, radius=1.0),
+            color=Color(255, 180, 220),
+            line_width=2,
+            category="Tori / manifolds",
+            info="A closed wire loop living on S1xS1: x,y follow p*θ, z,w follow q*θ. Edges connect successive samples, forming a knotted loop embedded in 4D.",
+        ),
+        DemoEntry(
+            name="Hopf Link (orthogonal circles)",
+            description="Two linked circles in orthogonal planes (XY and ZW).",
+            factory=lambda: HopfLink4D(radius=1.0, segments=160),
+            color=Color(180, 220, 255),
+            line_width=2,
+            category="Tori / manifolds",
+            info="A pair of circles: one in XY, one in ZW. In 4D they are disjoint; their 3D projection shows the classic Hopf link. Sampled as two loops with successive edges.",
+        ),
+        DemoEntry(
             name="Clifford Torus",
             description="S1 x S1 embedded in S3; a 4D torus wireframe.",
             factory=lambda: CliffordTorus(segments_u=28, segments_v=16, size=1.0),
@@ -205,6 +255,7 @@ def _run_demo_menu_internal(start_index: int = 0) -> None:
         "mode": "preview",
         "show_info": False,
         "info_hover": False,
+        "spin": True,
     }  # modes: preview | viewer
 
     info_center = (1100 - 40, 40)
@@ -251,6 +302,9 @@ def _run_demo_menu_internal(start_index: int = 0) -> None:
     def back_to_preview() -> None:
         state["mode"] = "preview"
 
+    def toggle_spin() -> None:
+        state["spin"] = not state["spin"]
+
     # Bind menu controls before entering the loop
     renderer.input_handler.register_key_handler(pygame.K_RIGHT, next_demo)
     renderer.input_handler.register_key_handler(pygame.K_LEFT, prev_demo)
@@ -259,6 +313,7 @@ def _run_demo_menu_internal(start_index: int = 0) -> None:
     renderer.input_handler.register_key_handler(pygame.K_SPACE, lambda: reset_demo() if state["mode"] == "viewer" else enter_viewer())
     renderer.input_handler.register_key_handler(pygame.K_RETURN, enter_viewer)
     renderer.input_handler.register_key_handler(pygame.K_m, back_to_preview)
+    renderer.input_handler.register_key_handler(pygame.K_t, toggle_spin)
 
     load_demo(0)
 
@@ -298,6 +353,10 @@ def _run_demo_menu_internal(start_index: int = 0) -> None:
                 stats.append(f"Cells: {shape.get_cell_count()}")
             stats_text = " | ".join(stats)
             screen.blit(font_body.render(stats_text, True, (180, 200, 220)), (18, text_y))
+            text_y += 22
+            spin_text = "Spin: ON" if state["spin"] else "Spin: OFF"
+            spin_color = (160, 235, 160) if state["spin"] else (220, 180, 140)
+            screen.blit(font_body.render(spin_text, True, spin_color), (18, text_y))
         text_y += 26
 
         # Info badge (top-right)
@@ -323,9 +382,9 @@ def _run_demo_menu_internal(start_index: int = 0) -> None:
                 info_y += 22
 
         if state["mode"] == "preview":
-            controls = "Enter/Space: start viewer   Up/Down/Left/Right: choose demo   Esc: quit"
+            controls = "Enter/Space: start viewer   Up/Down/Left/Right: choose demo   T: toggle spin   Esc: quit"
         else:
-            controls = "Left/Right: cycle demos   Space: reset demo   M/B: back to menu   Drag+LMB: orbit   +/-: zoom   Z/X: move W   Esc: quit"
+            controls = "Left/Right: cycle demos   Space: reset demo   T: toggle spin   M/B: back to menu   Drag+LMB: orbit   +/-: zoom   Z/X: move W   Esc: quit"
         screen.blit(font_body.render(controls, True, (170, 180, 200)), (18, text_y))
 
         # On preview, show a scrollable list on the right for quick reference
@@ -374,6 +433,8 @@ def _run_demo_menu_internal(start_index: int = 0) -> None:
                         running = False
                     elif event.key == pygame.K_i:
                         state["show_info"] = not state["show_info"]
+                    elif event.key == pygame.K_t:
+                        toggle_spin()
                     elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         enter_viewer()
                     elif event.key in (pygame.K_LEFT, pygame.K_a):
@@ -408,6 +469,9 @@ def _run_demo_menu_internal(start_index: int = 0) -> None:
                     if event.key == pygame.K_i:
                         state["show_info"] = not state["show_info"]
                         continue
+                    if event.key == pygame.K_t:
+                        toggle_spin()
+                        continue
                     handler = renderer.input_handler._key_handlers.get(event.key)
                     if handler:
                         handler()
@@ -418,7 +482,7 @@ def _run_demo_menu_internal(start_index: int = 0) -> None:
 
         # Mild idle rotation for visual interest
         obj = state["active"]
-        if obj is not None and hasattr(obj, "rotate"):
+        if state["spin"] and obj is not None and hasattr(obj, "rotate"):
             obj.rotate(xy=dt * 0.6, xw=dt * 0.4, yw=dt * 0.35, zw=dt * 0.3)
 
         renderer.update(dt)

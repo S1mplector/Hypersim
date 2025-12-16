@@ -25,6 +25,8 @@ class Hypercube(Shape4D):
         """
         super().__init__(**kwargs)
         self.size = float(size)
+        # Let the shape drive its own iconic spin instead of relying on global auto-spin
+        self.auto_spin_enabled = False
 
         # 16 vertices at all combinations of (±1, ±1, ±1, ±1)
         # Scale them to control overall size
@@ -87,3 +89,12 @@ class Hypercube(Shape4D):
     @property
     def cells(self) -> List[Tuple[int, ...]]:
         return self._cells
+
+    def update(self, dt: float) -> None:
+        """Iconic gentle rotation that always runs, even if global spin is off."""
+        self.rotate(
+            xy=0.5 * dt,
+            xw=0.35 * dt,
+            yw=0.3 * dt,
+            zw=0.25 * dt,
+        )
