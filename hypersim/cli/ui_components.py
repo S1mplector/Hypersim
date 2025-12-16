@@ -501,7 +501,7 @@ class SearchBox:
         self._cursor_visible = True
         self._cursor_timer = 0.0
     
-    def update(self, dt: float) -> None:
+    def update(self, dt: float, mouse_pos: Tuple[int, int] = (0, 0)) -> None:
         if self.focused:
             self._cursor_timer += dt
             if self._cursor_timer > 0.5:

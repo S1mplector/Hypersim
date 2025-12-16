@@ -30,6 +30,13 @@ from .ui_components import (
     Animation, lerp, lerp_color, ease_out_cubic,
 )
 
+# Import new features
+from hypersim.visualization.materials import Material, Gradient, GradientType, Materials
+from hypersim.visualization.recorder import Recorder, RecordingConfig
+from hypersim.visualization.effects import MotionBlur, MotionBlurConfig, Glow, GlowConfig
+from hypersim.core.morphing import ShapeMorpher, MorphStrategy, EasingType
+from hypersim.physics.particles import ParticleSystem, ParticleConfig, ParticleEmitter, EmitterShape
+
 
 @dataclass
 class DemoObject:
@@ -392,6 +399,29 @@ class DemoMenu:
         self.line_width_multiplier = 1.0
         self.bg_brightness = 0.05
         
+        # New features
+        self.use_gradient = False
+        self.gradient_type = "depth"  # depth, radial, w_axis, rainbow
+        self.show_particles = False
+        self.motion_blur_enabled = False
+        self.is_recording = False
+        self.morph_mode = False
+        
+        # Recording
+        self.recorder = Recorder(RecordingConfig(fps=30))
+        
+        # Effects
+        self.motion_blur = MotionBlur(MotionBlurConfig(samples=6, decay=0.6, enabled=False))
+        self.glow = Glow(GlowConfig(radius=3, intensity=0.3, enabled=False))
+        
+        # Morphing
+        self.morpher = ShapeMorpher(strategy=MorphStrategy.DISTRIBUTE, easing=EasingType.EASE_IN_OUT)
+        self.morph_target_idx: Optional[int] = None
+        
+        # Particles
+        self.particle_system = ParticleSystem()
+        self._setup_ambient_particles()
+        
         # Categories
         self.categories = self._get_categories()
         self.selected_category = "All"
@@ -415,6 +445,31 @@ class DemoMenu:
         
         # Load first object
         self._load_object(0)
+    
+    def _setup_ambient_particles(self) -> None:
+        """Setup ambient particle effect."""
+        config = ParticleConfig(
+            lifetime_min=3.0,
+            lifetime_max=5.0,
+            speed_min=0.05,
+            speed_max=0.15,
+            size_start=2,
+            size_end=1,
+            color_start=(100, 150, 255),
+            color_end=(50, 80, 150),
+            alpha_start=80,
+            alpha_end=0,
+            gravity_scale=0.0,
+        )
+        emitter = self.particle_system.create_emitter(
+            np.array([0, 0, 0, 0], dtype=np.float32),
+            config,
+            shape=EmitterShape.HYPERSPHERE,
+            shape_size=3.0,
+            emission_rate=3,
+            max_particles=50,
+        )
+        emitter.enabled = False  # Start disabled
     
     def _get_categories(self) -> List[str]:
         """Get unique categories."""
@@ -470,19 +525,55 @@ class DemoMenu:
             on_change=lambda v: setattr(self, 'w_factor', v),
         )
         
+        # Feature toggles
+        self.gradient_toggle = Toggle(
+            (self.width - 280, 320),
+            label="Color Gradient",
+            value=False,
+            on_change=lambda v: setattr(self, 'use_gradient', v),
+        )
+        
+        self.particles_toggle = Toggle(
+            (self.width - 280, 355),
+            label="Particles",
+            value=False,
+            on_change=self._toggle_particles,
+        )
+        
+        self.blur_toggle = Toggle(
+            (self.width - 280, 390),
+            label="Motion Blur",
+            value=False,
+            on_change=self._toggle_motion_blur,
+        )
+        
         # Buttons
         self.screenshot_btn = Button(
-            pygame.Rect(self.width - 280, self.height - 60, 120, 36),
+            pygame.Rect(self.width - 280, self.height - 110, 120, 36),
             text="Screenshot",
             on_click=self._take_screenshot,
             color=Colors.ACCENT_GREEN,
         )
         
+        self.record_btn = Button(
+            pygame.Rect(self.width - 150, self.height - 110, 120, 36),
+            text="Record",
+            on_click=self._toggle_recording,
+            color=Colors.ACCENT_ORANGE,
+        )
+        
+        self.morph_btn = Button(
+            pygame.Rect(self.width - 280, self.height - 60, 120, 36),
+            text="Morph Next",
+            on_click=self._start_morph,
+            color=Colors.ACCENT_PURPLE,
+        )
+        
         self.reset_btn = Button(
             pygame.Rect(self.width - 150, self.height - 60, 120, 36),
-            text="Reset View",
+            text="Reset",
             on_click=self._reset_view,
-            color=Colors.ACCENT_ORANGE,
+            color=Colors.ACCENT_CYAN,
         )
     
     def _on_search(self, query: str) -> None:
@@ -569,6 +660,69 @@ class DemoMenu:
         self._load_object(self.selected_index)
         self._add_toast("View reset", Colors.ACCENT_BLUE)
     
+    def _toggle_particles(self, enabled: bool) -> None:
+        """Toggle particle effects."""
+        self.show_particles = enabled
+        if self.particle_system.emitters:
+            self.particle_system.emitters[0].enabled = enabled
+        status = "enabled" if enabled else "disabled"
+        self._add_toast(f"Particles {status}", Colors.ACCENT_CYAN)
+    
+    def _toggle_motion_blur(self, enabled: bool) -> None:
+        """Toggle motion blur effect."""
+        self.motion_blur_enabled = enabled
+        self.motion_blur.set_enabled(enabled)
+        status = "enabled" if enabled else "disabled"
+        self._add_toast(f"Motion blur {status}", Colors.ACCENT_PURPLE)
+    
+    def _toggle_recording(self) -> None:
+        """Toggle GIF recording."""
+        if self.is_recording:
+            self.recorder.stop()
+            self.is_recording = False
+            # Save the recording
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"hypersim_recording_{timestamp}.gif"
+            self._add_toast(f"Saving {filename}...", Colors.ACCENT_ORANGE)
+            if self.recorder.save(filename):
+                self._add_toast(f"Saved: {filename} ({self.recorder.frame_count} frames)", Colors.SUCCESS)
+            else:
+                self._add_toast("Recording save failed", Colors.ERROR)
+            self.record_btn.text = "Record"
+            self.record_btn.color = Colors.ACCENT_ORANGE
+        else:
+            self.recorder.start()
+            self.is_recording = True
+            self.record_btn.text = "Stop"
+            self.record_btn.color = Colors.ERROR
+            self._add_toast("Recording started...", Colors.ACCENT_ORANGE)
+    
+    def _start_morph(self) -> None:
+        """Start morphing to next object."""
+        if self.morpher.is_morphing:
+            self._add_toast("Morph in progress...", Colors.WARNING)
+            return
+        
+        if not self.filtered_objects or len(self.filtered_objects) < 2:
+            self._add_toast("Need at least 2 objects to morph", Colors.WARNING)
+            return
+        
+        # Get next object
+        next_idx = (self.selected_index + 1) % len(self.filtered_objects)
+        next_demo = self.filtered_objects[next_idx]
+        
+        try:
+            next_obj = next_demo.factory()
+            if hasattr(next_obj, 'rotate'):
+                next_obj.rotate(xy=0.35, xw=0.28, yw=0.22, zw=0.18)
+            
+            self.morpher.start_morph(self.current_object, next_obj, duration=1.5)
+            self.morph_target_idx = next_idx
+            self._add_toast(f"Morphing to {next_demo.name}...", Colors.ACCENT_PURPLE)
+        except Exception as e:
+            self._add_toast(f"Morph failed: {e}", Colors.ERROR)
+    
     def _project_vertex(self, v: np.ndarray) -> Tuple[int, int, float]:
         """Project a 4D vertex to 2D screen coordinates."""
         x, y, z, w = v
@@ -589,12 +743,29 @@ class DemoMenu:
     
     def _render_object(self) -> None:
         """Render the current 4D object."""
-        if self.current_object is None:
+        if self.current_object is None and not self.morpher.is_morphing:
             return
         
         demo = self.filtered_objects[self.selected_index]
-        vertices = self.current_object.get_transformed_vertices()
-        edges = self.current_object.edges
+        
+        # Get vertices - from morpher if morphing, otherwise from object
+        if self.morpher.is_morphing:
+            vertices = self.morpher.vertices
+            edges = self.morpher.edges
+            # Interpolate color during morph
+            if self.morph_target_idx is not None:
+                target_demo = self.filtered_objects[self.morph_target_idx]
+                t = self.morpher.progress
+                base_color = tuple(
+                    int(demo.color[i] + (target_demo.color[i] - demo.color[i]) * t)
+                    for i in range(3)
+                )
+            else:
+                base_color = demo.color
+        else:
+            vertices = self.current_object.get_transformed_vertices()
+            edges = self.current_object.edges
+            base_color = demo.color
         
         # Project all vertices
         projected = [self._project_vertex(np.array(v)) for v in vertices]
@@ -604,14 +775,14 @@ class DemoMenu:
         for a, b in edges:
             if a < len(projected) and b < len(projected):
                 avg_depth = (projected[a][2] + projected[b][2]) / 2
-                edge_data.append((avg_depth, a, b))
+                edge_data.append((avg_depth, a, b, vertices[a], vertices[b]))
         edge_data.sort(reverse=True)
         
         # Apply transition animation
         alpha = int(255 * self._transition_anim.value)
         
-        # Draw edges with depth-based coloring
-        for depth, a, b in edge_data:
+        # Draw edges with depth-based or gradient coloring
+        for depth, a, b, v1, v2 in edge_data:
             p1 = (projected[a][0], projected[a][1])
             p2 = (projected[b][0], projected[b][1])
             
@@ -619,8 +790,32 @@ class DemoMenu:
             t = (depth + 2) / 4  # Normalize depth
             t = max(0, min(1, t))
             
-            base_color = demo.color
-            color = tuple(int(c * (0.4 + 0.6 * (1 - t))) for c in base_color)
+            if self.use_gradient:
+                # Use gradient coloring
+                if self.gradient_type == "rainbow":
+                    # Rainbow based on W coordinate
+                    w_val = (v1[3] + v2[3]) / 2
+                    hue = (w_val + 1.5) / 3.0  # Map to 0-1
+                    color = self._hsv_to_rgb(hue % 1.0, 0.8, 1.0 - t * 0.4)
+                elif self.gradient_type == "radial":
+                    # Radial gradient
+                    dist = (np.linalg.norm(v1) + np.linalg.norm(v2)) / 2
+                    r_t = min(1, dist / 2)
+                    color = (
+                        int(255 * (1 - r_t) + 80 * r_t),
+                        int(200 * (1 - r_t) + 255 * r_t),
+                        int(255 * (1 - r_t) + 150 * r_t),
+                    )
+                    color = tuple(int(c * (0.5 + 0.5 * (1 - t))) for c in color)
+                else:  # depth gradient (default)
+                    near_color = (255, 255, 255)
+                    far_color = (50, 80, 150)
+                    color = tuple(
+                        int(near_color[i] * (1 - t) + far_color[i] * t)
+                        for i in range(3)
+                    )
+            else:
+                color = tuple(int(c * (0.4 + 0.6 * (1 - t))) for c in base_color)
             
             width = max(1, int(demo.line_width * self.line_width_multiplier * (1 - t * 0.3)))
             
@@ -631,6 +826,27 @@ class DemoMenu:
                 self.screen.blit(surf, (0, 0))
             else:
                 pygame.draw.line(self.screen, color, p1, p2, width)
+    
+    def _hsv_to_rgb(self, h: float, s: float, v: float) -> Tuple[int, int, int]:
+        """Convert HSV to RGB."""
+        import colorsys
+        r, g, b = colorsys.hsv_to_rgb(h, s, v)
+        return int(r * 255), int(g * 255), int(b * 255)
+    
+    def _render_particles(self) -> None:
+        """Render particle effects."""
+        if not self.show_particles:
+            return
+        
+        for particle in self.particle_system.get_all_particles():
+            px, py, depth = self._project_vertex(particle.position)
+            size = int(particle.current_size)
+            
+            if 0 < px < self.width and 0 < py < self.height and size > 0:
+                color = (*particle.current_color, particle.current_alpha)
+                surf = pygame.Surface((size * 2 + 2, size * 2 + 2), pygame.SRCALPHA)
+                pygame.draw.circle(surf, color, (size + 1, size + 1), size)
+                self.screen.blit(surf, (px - size - 1, py - size - 1))
     
     def _draw_object_list(self) -> None:
         """Draw the object list sidebar."""
@@ -709,8 +925,13 @@ class DemoMenu:
         self.scale_slider.draw(self.screen)
         self.w_slider.draw(self.screen)
         
+        # Feature toggles
+        self.gradient_toggle.draw(self.screen)
+        self.particles_toggle.draw(self.screen)
+        self.blur_toggle.draw(self.screen)
+        
         # Stats panel
-        stats_y = 320
+        stats_y = 440
         pygame.draw.line(self.screen, Colors.BORDER, (panel_x + 15, stats_y), (self.width - 15, stats_y), 1)
         
         stats_title = self.font_body.render("Geometry", True, Colors.TEXT_PRIMARY)
@@ -760,7 +981,27 @@ class DemoMenu:
         
         # Buttons
         self.screenshot_btn.draw(self.screen)
+        self.record_btn.draw(self.screen)
+        self.morph_btn.draw(self.screen)
         self.reset_btn.draw(self.screen)
+        
+        # Recording indicator
+        if self.is_recording:
+            rec_color = (255, 80, 80) if int(pygame.time.get_ticks() / 500) % 2 else (180, 50, 50)
+            pygame.draw.circle(self.screen, rec_color, (panel_x + 270, 25), 8)
+            rec_text = self.font_small.render(f"REC {self.recorder.frame_count}", True, rec_color)
+            self.screen.blit(rec_text, (panel_x + 200, 18))
+        
+        # Morph progress
+        if self.morpher.is_morphing:
+            progress_y = self.height - 140
+            pygame.draw.rect(self.screen, Colors.BG_ACTIVE, 
+                           (panel_x + 15, progress_y, 270, 20), border_radius=4)
+            progress_width = int(260 * self.morpher.progress)
+            pygame.draw.rect(self.screen, Colors.ACCENT_PURPLE,
+                           (panel_x + 20, progress_y + 3, progress_width, 14), border_radius=3)
+            morph_text = self.font_small.render(f"Morphing... {int(self.morpher.progress * 100)}%", True, Colors.TEXT_PRIMARY)
+            self.screen.blit(morph_text, (panel_x + 15, progress_y - 18))
     
     def _draw_help_overlay(self) -> None:
         """Draw the help overlay."""
@@ -788,15 +1029,17 @@ class DemoMenu:
         
         # Shortcuts
         shortcuts = [
-            ("↑/↓ or W/S", "Navigate objects"),
-            ("←/→ or A/D", "Navigate objects"),
+            ("↑/↓/←/→", "Navigate objects"),
             ("Space", "Toggle auto-spin"),
-            ("R", "Reset view"),
-            ("I", "Toggle info panel"),
-            ("H", "Toggle this help"),
+            ("G", "Cycle gradient modes"),
+            ("P", "Toggle particles"),
+            ("B", "Toggle motion blur"),
+            ("M", "Morph to next object"),
+            ("F5", "Start/stop recording"),
             ("F12", "Take screenshot"),
-            ("1-9", "Quick jump to object"),
-            ("+/-", "Adjust projection scale"),
+            ("R", "Reset view"),
+            ("+/-", "Adjust scale"),
+            ("H", "Toggle help"),
             ("Esc", "Quit"),
         ]
         
@@ -863,7 +1106,17 @@ class DemoMenu:
                 continue
             if self.screenshot_btn.handle_event(event):
                 continue
+            if self.record_btn.handle_event(event):
+                continue
+            if self.morph_btn.handle_event(event):
+                continue
             if self.reset_btn.handle_event(event):
+                continue
+            if self.gradient_toggle.handle_event(event):
+                continue
+            if self.particles_toggle.handle_event(event):
+                continue
+            if self.blur_toggle.handle_event(event):
                 continue
             
             # Keyboard
@@ -880,6 +1133,26 @@ class DemoMenu:
                     self.spin_toggle.value = self.auto_spin
                 elif event.key == pygame.K_r:
                     self._reset_view()
+                elif event.key == pygame.K_g:
+                    # Cycle gradient types
+                    self.use_gradient = True
+                    self.gradient_toggle.value = True
+                    types = ["depth", "radial", "rainbow"]
+                    idx = types.index(self.gradient_type) if self.gradient_type in types else 0
+                    self.gradient_type = types[(idx + 1) % len(types)]
+                    self._add_toast(f"Gradient: {self.gradient_type}", Colors.ACCENT_CYAN)
+                elif event.key == pygame.K_p:
+                    self.show_particles = not self.show_particles
+                    self.particles_toggle.value = self.show_particles
+                    self._toggle_particles(self.show_particles)
+                elif event.key == pygame.K_b:
+                    self.motion_blur_enabled = not self.motion_blur_enabled
+                    self.blur_toggle.value = self.motion_blur_enabled
+                    self._toggle_motion_blur(self.motion_blur_enabled)
+                elif event.key == pygame.K_m:
+                    self._start_morph()
+                elif event.key == pygame.K_F5:
+                    self._toggle_recording()
                 elif event.key == pygame.K_F12:
                     self._take_screenshot()
                 elif event.key in (pygame.K_UP, pygame.K_w):
@@ -910,7 +1183,8 @@ class DemoMenu:
             
             # Mouse wheel for scrolling
             if event.type == pygame.MOUSEWHEEL:
-                if event.pos[0] < 320:  # In object list
+                mx, my = pygame.mouse.get_pos()
+                if mx < 320:  # In object list
                     if event.y > 0:
                         self._load_object(self.selected_index - 1)
                     else:
@@ -927,7 +1201,12 @@ class DemoMenu:
         self.speed_slider.update(dt, mouse_pos)
         self.scale_slider.update(dt, mouse_pos)
         self.w_slider.update(dt, mouse_pos)
+        self.gradient_toggle.update(dt)
+        self.particles_toggle.update(dt)
+        self.blur_toggle.update(dt)
         self.screenshot_btn.update(dt, mouse_pos)
+        self.record_btn.update(dt, mouse_pos)
+        self.morph_btn.update(dt, mouse_pos)
         self.reset_btn.update(dt, mouse_pos)
         
         # Update animations
@@ -937,6 +1216,24 @@ class DemoMenu:
         for toast in self.toasts:
             toast.update(dt)
         self.toasts = [t for t in self.toasts if not t.finished]
+        
+        # Update morphing
+        if self.morpher.is_morphing:
+            still_morphing = self.morpher.update(dt)
+            if not still_morphing:
+                # Morph complete - switch to target object
+                if self.morph_target_idx is not None:
+                    self.selected_index = self.morph_target_idx
+                    demo = self.filtered_objects[self.selected_index]
+                    self.current_object = demo.factory()
+                    if hasattr(self.current_object, 'rotate'):
+                        self.current_object.rotate(xy=0.35, xw=0.28, yw=0.22, zw=0.18)
+                    self._add_toast(f"Now showing: {demo.name}", Colors.SUCCESS)
+                self.morph_target_idx = None
+        
+        # Update particles
+        if self.show_particles:
+            self.particle_system.update(dt)
         
         # Rotate object
         if self.auto_spin and self.current_object and hasattr(self.current_object, 'rotate'):
@@ -957,6 +1254,9 @@ class DemoMenu:
         # Render 4D object
         self._render_object()
         
+        # Render particles
+        self._render_particles()
+        
         # UI
         self._draw_object_list()
         self._draw_info_panel()
@@ -965,6 +1265,10 @@ class DemoMenu:
         # Overlays
         self._draw_help_overlay()
         self._draw_toasts()
+        
+        # Capture frame if recording
+        if self.is_recording:
+            self.recorder.capture_frame(self.screen)
         
         pygame.display.flip()
     
