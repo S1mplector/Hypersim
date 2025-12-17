@@ -108,36 +108,70 @@ class Snub24Cell(Shape4D):
         self.chirality = chirality
         
         φ = self.PHI
-        φ2 = self.PHI2
-        φ3 = self.PHI3
+        φ2 = self.PHI2  # φ + 1
         
         verts_set = set()
         
-        # Generate vertices using even permutations
-        # Type 1: (0, ±1, ±φ, ±φ²)
-        base1 = [0, 1, φ, φ2]
-        for perm in self._even_permutations(base1):
-            for signs in self._all_signs_subset([1, 2, 3]):  # Sign changes on non-zero
-                v = list(perm)
-                for i, s in signs:
-                    v[i] *= s
+        # The snub 24-cell vertices can be derived from the 24-cell
+        # by a specific snubbing operation. The coordinates are:
+        
+        # Start with 24-cell vertices and add snub vertices
+        # 24-cell has vertices at permutations of (±1, ±1, 0, 0) and (±1, 0, 0, 0)*2
+        
+        # Type 1: Permutations of (±1, ±1, 0, 0) - 24 vertices from 24-cell
+        for signs in self._all_signs(2):
+            for positions in [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)]:
+                v = [0.0, 0.0, 0.0, 0.0]
+                v[positions[0]] = signs[0]
+                v[positions[1]] = signs[1]
                 verts_set.add(tuple(v))
         
-        # Type 2: (±φ², ±φ, ±φ, ±φ) - all sign combinations
-        base2 = [φ2, φ, φ, φ]
-        for perm in self._even_permutations(base2):
-            for signs in self._all_signs(4):
-                v = tuple(perm[i] * signs[i] for i in range(4))
-                verts_set.add(v)
+        # Type 2: (±2, 0, 0, 0) and permutations - 8 vertices
+        for i in range(4):
+            for s in [1, -1]:
+                v = [0.0, 0.0, 0.0, 0.0]
+                v[i] = 2.0 * s
+                verts_set.add(tuple(v))
+        
+        # Type 3: Snub vertices - even permutations of (±φ, ±1, ±1/φ, 0)
+        # where 1/φ = φ - 1
+        inv_phi = φ - 1
+        base_coords = [φ, 1.0, inv_phi, 0.0]
+        
+        for perm in self._even_permutations_indices(4):
+            for signs in self._all_signs(3):  # Signs for non-zero coords
+                v = [0.0, 0.0, 0.0, 0.0]
+                sign_idx = 0
+                for i, p in enumerate(perm):
+                    val = base_coords[p]
+                    if val != 0:
+                        v[i] = val * signs[sign_idx]
+                        sign_idx += 1
+                    else:
+                        v[i] = 0.0
+                verts_set.add(tuple(v))
+        
+        # Type 4: Even permutations of (±φ², ±1/φ, ±1/φ, ±1/φ) with even sign changes
+        base4 = [φ2, inv_phi, inv_phi, inv_phi]
+        for perm in self._even_permutations_indices(4):
+            for signs in self._even_signs(4):
+                v = [base4[perm[i]] * signs[i] for i in range(4)]
+                verts_set.add(tuple(v))
         
         # Apply chirality (mirror for left-handed)
         if chirality == 'left':
             verts_set = {(v[0], v[1], v[2], -v[3]) for v in verts_set}
         
-        # Convert and scale
-        verts = [np.array(v, dtype=np.float32) for v in sorted(verts_set)]
-        scale = self.size / self.CIRCUMRADIUS
-        self._base_vertices = [v * scale for v in verts]
+        # Normalize all vertices to same circumradius and scale
+        verts_list = list(verts_set)
+        if verts_list:
+            radii = [np.sqrt(sum(c*c for c in v)) for v in verts_list]
+            max_radius = max(radii) if radii else 1.0
+            scale = self.size / max_radius if max_radius > 0 else self.size
+        else:
+            scale = self.size
+        
+        self._base_vertices = [np.array(v, dtype=np.float32) * scale for v in sorted(verts_list)]
         
         self._edges = self._generate_edges()
         self._faces: List[Tuple[int, ...]] = []
@@ -161,6 +195,35 @@ class Snub24Cell(Shape4D):
                 even.append(p)
         
         return list(set(even))
+    
+    def _even_permutations_indices(self, n: int) -> List[Tuple[int, ...]]:
+        """Generate even permutations of indices [0, 1, ..., n-1]."""
+        from itertools import permutations as itertools_perms
+        
+        all_perms = list(itertools_perms(range(n)))
+        even = []
+        
+        for p in all_perms:
+            inversions = 0
+            for i in range(len(p)):
+                for j in range(i + 1, len(p)):
+                    if p[i] > p[j]:
+                        inversions += 1
+            if inversions % 2 == 0:
+                even.append(p)
+        
+        return even
+    
+    def _even_signs(self, n: int) -> List[Tuple[int, ...]]:
+        """Generate sign combinations with even number of negatives."""
+        result = []
+        for i in range(2**n):
+            signs = tuple(1 if (i >> j) & 1 else -1 for j in range(n))
+            # Count negatives
+            neg_count = sum(1 for s in signs if s == -1)
+            if neg_count % 2 == 0:
+                result.append(signs)
+        return result
     
     def _all_signs(self, n: int) -> List[Tuple[int, ...]]:
         """Generate all 2^n sign combinations."""
@@ -189,25 +252,32 @@ class Snub24Cell(Shape4D):
         if n == 0:
             return edges
         
-        # Find edge length (minimum non-zero distance)
+        # Compute all pairwise distances
         distances = []
-        for i in range(min(n, 30)):
-            for j in range(i + 1, min(n, 30)):
+        for i in range(n):
+            for j in range(i + 1, n):
                 d = np.linalg.norm(self._base_vertices[i] - self._base_vertices[j])
-                if d > 0.01:
-                    distances.append(d)
+                if d > 0.001:
+                    distances.append((d, i, j))
         
         if not distances:
             return edges
         
-        edge_length = min(distances)
-        tolerance = edge_length * 0.15
+        distances.sort(key=lambda x: x[0])
         
-        for i in range(n):
-            for j in range(i + 1, n):
-                d = np.linalg.norm(self._base_vertices[i] - self._base_vertices[j])
-                if abs(d - edge_length) < tolerance:
-                    edges.append((i, j))
+        # Find the edge length - the minimum distance
+        edge_length = distances[0][0]
+        
+        # Use a tolerance of 5% to account for floating point errors
+        tolerance = edge_length * 0.05
+        
+        # Add all edges with this length
+        for d, i, j in distances:
+            if d <= edge_length + tolerance:
+                edges.append((i, j))
+            else:
+                # Distances are sorted, so we can stop
+                break
         
         return edges
     
