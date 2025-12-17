@@ -446,6 +446,74 @@ class DemoMenu:
         # Load first object
         self._load_object(0)
     
+    def _init_from_app(self) -> None:
+        """Initialize when launched from the master app (screen already set)."""
+        pygame.display.set_caption("HyperSim - 4D Object Explorer")
+        
+        # State
+        self.running = True
+        self.selected_index = 0
+        self.filtered_objects = list(DEMO_OBJECTS)
+        self.current_object: Any = None
+        self.auto_spin = True
+        self.show_info = False
+        self.show_help = False
+        self.show_settings = False
+        
+        # Settings
+        self.spin_speed = 1.0
+        self.projection_scale = 150.0
+        self.w_factor = 0.3
+        self.line_width_multiplier = 1.0
+        self.bg_brightness = 0.05
+        
+        # New features
+        self.use_gradient = False
+        self.gradient_type = "depth"
+        self.show_particles = False
+        self.motion_blur_enabled = False
+        self.is_recording = False
+        self.morph_mode = False
+        
+        # Recording
+        self.recorder = Recorder(RecordingConfig(fps=30))
+        
+        # Effects
+        self.motion_blur = MotionBlur(MotionBlurConfig(samples=6, decay=0.6, enabled=False))
+        self.glow = Glow(GlowConfig(radius=3, intensity=0.3, enabled=False))
+        
+        # Morphing
+        self.morpher = ShapeMorpher(strategy=MorphStrategy.DISTRIBUTE, easing=EasingType.EASE_IN_OUT)
+        self.morph_target_idx: Optional[int] = None
+        
+        # Particles
+        self.particle_system = ParticleSystem()
+        self._setup_ambient_particles()
+        
+        # Categories
+        self.categories = self._get_categories()
+        self.selected_category = "All"
+        
+        # Animations
+        self._transition_anim = Animation(1, 1, 0)
+        self._info_anim = Animation(0, 0, 0)
+        
+        # UI Components
+        self._init_ui()
+        
+        # Fonts
+        self.font_title = pygame.font.SysFont("Arial", 28, bold=True)
+        self.font_subtitle = pygame.font.SysFont("Arial", 20)
+        self.font_body = pygame.font.SysFont("Arial", 16)
+        self.font_small = pygame.font.SysFont("Arial", 14)
+        self.font_mono = pygame.font.SysFont("Consolas", 14)
+        
+        # Toasts
+        self.toasts: List[Toast] = []
+        
+        # Load first object
+        self._load_object(0)
+    
     def _setup_ambient_particles(self) -> None:
         """Setup ambient particle effect."""
         config = ParticleConfig(
