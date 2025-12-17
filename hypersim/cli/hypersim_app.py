@@ -423,6 +423,8 @@ class HyperSimApp:
     
     def _return_to_menu(self) -> None:
         """Return to main menu."""
+        if self._sandbox and getattr(self._sandbox, "mouse_captured", False):
+            self._sandbox.release_mouse()
         self.mode = AppMode.MAIN_MENU
         self._explorer = None
         self._sandbox = None
@@ -624,10 +626,8 @@ class HyperSimApp:
             
             elif self.mode == AppMode.SANDBOX and self._sandbox:
                 # Run sandbox loop iteration  
-                if not self._sandbox.handle_input(dt):
+                if not self._sandbox.step(dt):
                     self._return_to_menu()
-                else:
-                    self._sandbox.render()
             
             else:
                 self.handle_events()
