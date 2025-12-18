@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
-from typing import List, Tuple, Any
+from typing import Any, List, Optional, Tuple
 
-import numpy as npk
+import numpy as np
 import pygame
+
+from hypersim.game import GameSession, DimensionSpec
 
 from .base_app import BaseApp, Camera4D, THEME, Fonts
 from .sandbox_features import (
@@ -116,8 +118,24 @@ class WorldObject:
 class Sandbox4D(BaseApp):
     """The immersive 4D sandbox with enhanced features."""
     
-    def __init__(self, width: int = 1400, height: int = 900):
+    def __init__(self, width: int = 1400, height: int = 900, session: Optional[GameSession] = None):
         super().__init__(width, height, "HyperSim 4D Sandbox")
+        
+        self.session = session
+        self._free_dim_spec = DimensionSpec(
+            id="free-4d",
+            order=3,
+            name="Sandbox 4D",
+            axes=4,
+            movement_axes=["x", "y", "z", "w"],
+            render_mode="hypervolume",
+            description="Free-roam hyper sandbox",
+            control_over_lower=True,
+            abilities=["spawn", "fly"],
+            projection_hint="4d_perspective",
+        )
+        self._status_msg: str = ""
+        self._status_timer: float = 0.0
         
         self.camera = Camera4D()
         self.objects: List[WorldObject] = []
@@ -170,6 +188,8 @@ class Sandbox4D(BaseApp):
         self.hud = SandboxHUD(self.width, self.height)
         self.selector = ObjectSelector()
         self.spawner_menu = SpawnerMenu(self.height)
+        self._status_msg = ""
+        self._status_timer = 0.0
         
         self._spawn_defaults()
     
@@ -183,9 +203,86 @@ class Sandbox4D(BaseApp):
         cube_3d.position = np.array([4.0, 0.0, 0.0, 0.0])
         cube_3d.color = (255, 150, 100)
         self.objects.append(WorldObject(cube_3d, True, (255, 150, 100), cube_3d.position.copy()))
+
+    def _available_missions(self) -> List[Any]:
+        if not self.session or not self.session.campaign:
+            return []
+        return self.session.campaign.available(self.session.progression)
+
+    # ------------------------------------------------------------------
+    # Dimension awareness
+    # ------------------------------------------------------------------
+    @property
+    def dim_spec(self) -> DimensionSpec:
+        """Active dimension descriptor (session-aware)."""
+        return self.session.active_dimension if self.session else self._free_dim_spec
+
+    def _movement_axes(self) -> set[str]:
+        """Return allowed movement axes for the current dimension."""
+        return set(self.dim_spec.movement_axes)
+
+    def _clamp_movement(self, forward: float, right: float, up: float, ana: float) -> Tuple[float, float, float, float]:
+        """Zero out movement components not allowed in the current dimension."""
+        axes = self._movement_axes()
+        if "z" not in axes:
+            forward = 0.0
+        if "x" not in axes:
+            right = 0.0
+        if "y" not in axes:
+            up = 0.0
+        if "w" not in axes:
+            ana = 0.0
+        return forward, right, up, ana
+
+    def _ascend_if_ready(self) -> None:
+        """Try to ascend to the next unlocked dimension."""
+        if not self.session:
+            return
+        if self.session.ascend_if_ready():
+            self._set_status(f"Ascended to {self.dim_spec.name}")
+        else:
+            next_dim = self.session.dimensions.next(self.dim_spec.id)
+            if next_dim is None:
+                self._set_status("Already at highest dimension")
+            else:
+                self._set_status(f"{next_dim.name} is locked")
+
+    def _descend_dimension(self) -> None:
+        """Drop to the previous dimension."""
+        if not self.session:
+            return
+        prev_dim = self.session.dimensions.previous(self.dim_spec.id)
+        if prev_dim is None:
+            self._set_status("No lower dimension")
+            return
+        self.session.set_dimension(prev_dim.id)
+        self._set_status(f"Descended to {prev_dim.name}")
+
+    def _complete_current_node(self) -> None:
+        """Mark the first available mission in this dimension as complete."""
+        if not self.session or not self.session.campaign:
+            return
+        available = self.session.campaign.available(self.session.progression)
+        candidates = [n for n in available if n.dimension_id == self.dim_spec.id]
+        target = candidates[0] if candidates else (available[0] if available else None)
+        if not target:
+            self._set_status("No missions available")
+            return
+        self.session.campaign.complete(target.id, self.session.progression)
+        self.session.progression.xp += 50
+        self._set_status(f"Completed '{target.title}'")
+        self._ascend_if_ready()
+
+    def _set_status(self, msg: str, duration: float = 2.5) -> None:
+        """Display a short-lived status message."""
+        self._status_msg = msg
+        self._status_timer = duration
     
     def spawn_4d(self, name: str) -> None:
         """Spawn a 4D object."""
+        if self.dim_spec.axes < 4:
+            self._set_status("4D spawns locked until 4D dimension")
+            return
         pos = self.camera.position + self.camera.get_forward() * self.spawn_distance
         factories = {
             "tesseract": lambda: Hypercube(size=self.spawn_size),
@@ -204,6 +301,9 @@ class Sandbox4D(BaseApp):
     
     def spawn_3d(self, name: str) -> None:
         """Spawn a 3D object."""
+        if self.dim_spec.axes < 3:
+            self._set_status("3D spawns locked until 3D dimension")
+            return
         pos = self.camera.position + self.camera.get_forward() * self.spawn_distance
         factories = {
             "cube": lambda: make_cube_3d(self.spawn_size),
@@ -302,6 +402,13 @@ class Sandbox4D(BaseApp):
                 elif event.key == pygame.K_MINUS:
                     self.spawn_size = max(0.2, self.spawn_size - 0.2)
                     self.spawn_gizmo.adjust_scale(-0.2)
+                # Progression / dimension control (when session is active)
+                elif event.key == pygame.K_c:
+                    self._ascend_if_ready()
+                elif event.key == pygame.K_v:
+                    self._descend_dimension()
+                elif event.key == pygame.K_RETURN:
+                    self._complete_current_node()
             
             elif event.type == pygame.KEYUP:
                 self.keys_held[event.key] = False
@@ -355,7 +462,8 @@ class Sandbox4D(BaseApp):
             ana -= 1
         if self.keys_held.get(pygame.K_e):
             ana += 1
-        
+
+        forward, right, up, ana = self._clamp_movement(forward, right, up, ana)
         self.camera.move(forward, right, up, ana, dt)
         
         # Update object animations
@@ -367,6 +475,11 @@ class Sandbox4D(BaseApp):
         # Update HUD stats
         fps = self.clock.get_fps() if self.clock else 60
         self.hud.update_stats(fps, dt)
+
+        if self._status_timer > 0:
+            self._status_timer -= dt
+            if self._status_timer <= 0:
+                self._status_msg = ""
     
     def render(self) -> None:
         """Render the scene."""
@@ -393,9 +506,14 @@ class Sandbox4D(BaseApp):
         
         # Draw spawner menu (on top of other UI)
         self.spawner_menu.draw(self.screen)
+
+        # Dimension/campaign overlay
+        self._draw_dimension_overlay()
         
         if self.show_help:
             self._draw_help()
+
+        self._draw_status_message()
     
     def _draw_grid(self) -> None:
         """Draw reference grid."""
@@ -462,6 +580,53 @@ class Sandbox4D(BaseApp):
         if not self.mouse_captured:
             hint = fonts.body.render("Click to capture mouse", True, (200, 180, 100))
             self.screen.blit(hint, (self.width//2 - hint.get_width()//2, 20))
+
+    def _draw_dimension_overlay(self) -> None:
+        """Draw current dimension and progression info."""
+        fonts = Fonts.get()
+        spec = self.dim_spec
+        panel_w, panel_h = 380, 170
+        x = self.width - panel_w - 20
+        y = 20
+        self.draw_panel(pygame.Rect(x, y, panel_w, panel_h),
+                        alpha=235, border_color=THEME.border)
+        
+        self.draw_text(f"{spec.name} ({spec.axes}D)", (x + 14, y + 12),
+                       THEME.text_primary, fonts.subtitle)
+        self.draw_text(f"Axes: {', '.join(spec.movement_axes)}", (x + 14, y + 36),
+                       THEME.text_secondary, fonts.small)
+        if spec.description:
+            self.draw_text(spec.description, (x + 14, y + 56),
+                           THEME.text_muted, fonts.small)
+        
+        if self.session:
+            unlocked = len(self.session.progression.unlocked_dimensions)
+            mission_count = len(self.session.campaign.available(self.session.progression)) if self.session.campaign else 0
+            control_scope = ", ".join(self.session.control_scope()) or "-"
+            meta = f"Unlocked: {unlocked} | Missions: {mission_count} | Control: {control_scope}"
+            self.draw_text(meta, (x + 14, y + 80), THEME.accent_cyan, fonts.small)
+            self.draw_text(f"XP: {self.session.progression.xp}", (x + 14, y + 98),
+                           THEME.text_secondary, fonts.small)
+            if spec.abilities:
+                self.draw_text(f"Abilities: {', '.join(spec.abilities)}", (x + 14, y + 116),
+                               THEME.text_secondary, fonts.small)
+            missions = self._available_missions()
+            if missions:
+                self.draw_text("Missions:", (x + 14, y + 134), THEME.text_primary, fonts.small)
+                for i, m in enumerate(missions[:3]):
+                    self.draw_text(f"- {m.title}", (x + 18, y + 150 + i * 16),
+                                   THEME.text_muted, fonts.small)
+            else:
+                self.draw_text("No missions available", (x + 14, y + 134),
+                               THEME.text_muted, fonts.small)
+    
+    def _draw_status_message(self) -> None:
+        """Draw transient status messages (e.g., ascension results)."""
+        if not self._status_msg:
+            return
+        fonts = Fonts.get()
+        surf = fonts.body.render(self._status_msg, True, THEME.accent_orange)
+        self.screen.blit(surf, (self.width//2 - surf.get_width()//2, self.height - 80))
     
     def _draw_help(self) -> None:
         """Draw help panel."""
@@ -481,6 +646,7 @@ class Sandbox4D(BaseApp):
                      ("M/N", "Minimap on/cycle"), ("Esc", "Release/Quit")]),
             ("Spawn", [("1-7", "4D objects"), ("F1-F3", "3D objects"), ("+/-", "Size")]),
             ("Animation", [("P", "Pause/Resume"), (",/.", "Speed -/+")]),
+            ("Progression", [("C", "Ascend (if unlocked)"), ("V", "Descend dimension"), ("Enter", "Complete mission")]),
             ("Select", [("Click obj", "Select"), ("R-Click", "Deselect")]),
         ]
         
@@ -489,12 +655,12 @@ class Sandbox4D(BaseApp):
             y += 20
             for key, desc in items:
                 self.draw_text(key, (40, y), (200, 200, 120), fonts.small)
-                self.draw_text(desc, (145, y), THEME.text_muted, fonts.small)
-                y += 16
-            y += 8
-        
+            self.draw_text(desc, (145, y), THEME.text_muted, fonts.small)
+            y += 16
+        y += 8
+    
         # Footer with extra spacing
-        self.draw_text("H: help | G: grid", (30, panel_h - 35), THEME.text_muted, fonts.small)
+        self.draw_text("H: help | G: grid | Spawns gated by dimension", (30, panel_h - 35), THEME.text_muted, fonts.small)
         self.draw_text("Objects auto-animate by default!", (30, panel_h - 18), THEME.accent_cyan, fonts.small)
 
 

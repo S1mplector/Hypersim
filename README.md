@@ -79,6 +79,8 @@ Check the `examples/` directory for example scripts. To run the included example
 ```bash
 python examples/pygame_simplex.py
 python examples/pygame_sixteen_cell.py
+python examples/game_session_bootstrap.py  # progression/campaign bootstrap
+python -m hypersim.cli --demo game         # progression-enabled sandbox mode
 ```
 
 ## Contributing
