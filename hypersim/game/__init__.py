@@ -6,11 +6,19 @@ are intentionally lightweight so they can wrap existing rendering and
 simulation pieces without forcing a specific gameplay loop.
 """
 
+from .abilities import AbilityState
 from .dimensions import DimensionSpec, DimensionTrack, DEFAULT_DIMENSIONS
 from .progression import CampaignNode, CampaignState, ProgressionState
 from .session import GameSession
+from .objectives import (
+    ObjectiveSpec,
+    ObjectiveType,
+    MissionState,
+    MissionTracker,
+)
 
 __all__ = [
+    "AbilityState",
     "DimensionSpec",
     "DimensionTrack",
     "DEFAULT_DIMENSIONS",
@@ -18,4 +26,8 @@ __all__ = [
     "CampaignState",
     "ProgressionState",
     "GameSession",
+    "ObjectiveSpec",
+    "ObjectiveType",
+    "MissionState",
+    "MissionTracker",
 ]

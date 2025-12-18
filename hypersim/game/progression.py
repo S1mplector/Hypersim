@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable, List, Optional, Set
+from typing import Dict, Iterable, List, Optional, Set
 
 from .dimensions import DimensionTrack, DimensionSpec
 
@@ -16,6 +16,9 @@ class ProgressionState:
     completed_nodes: Set[str] = field(default_factory=set)
     xp: int = 0
     profile_name: str = "default"
+    active_node_id: Optional[str] = None
+    mission_progress: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    unlocked_abilities: Set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         if self.current_dimension not in self.unlocked_dimensions:
@@ -35,9 +38,22 @@ class ProgressionState:
 
     def record_completion(self, node_id: str) -> None:
         self.completed_nodes.add(node_id)
+        if self.active_node_id == node_id:
+            self.active_node_id = None
+        self.mission_progress.pop(node_id, None)
 
     def highest_unlocked_order(self, track: DimensionTrack) -> int:
         return max(track.get(d).order for d in self.unlocked_dimensions)
+
+    def set_active_node(self, node_id: Optional[str]) -> None:
+        self.active_node_id = node_id
+
+    def grant_abilities(self, abilities: Iterable[str]) -> None:
+        for ability in abilities:
+            self.unlocked_abilities.add(ability)
+
+    def has_ability(self, ability: str) -> bool:
+        return ability in self.unlocked_abilities
 
 
 @dataclass(frozen=True)
@@ -50,7 +66,7 @@ class CampaignNode:
     description: str
     prerequisites: List[str] = field(default_factory=list)
     rewards: List[str] = field(default_factory=list)
-    objectives: List[str] = field(default_factory=list)
+    objectives: List["ObjectiveSpec"] = field(default_factory=list)
 
 
 class CampaignState:

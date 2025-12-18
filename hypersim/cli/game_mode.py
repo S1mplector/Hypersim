@@ -10,6 +10,8 @@ from hypersim.game import (
     DimensionTrack,
     GameSession,
     DEFAULT_DIMENSIONS,
+    ObjectiveSpec,
+    ObjectiveType,
 )
 from hypersim.game.save import load_progression, save_progression, DEFAULT_SAVE_PATH
 
@@ -22,6 +24,15 @@ def _build_default_campaign(track: DimensionTrack) -> CampaignState:
             dimension_id="1d",
             title="Awakening on the Line",
             description="Learn to move along the line and ping neighbors.",
+            objectives=[
+                ObjectiveSpec(
+                    id="reach-1d",
+                    type=ObjectiveType.REACH_DIMENSION,
+                    description="Exist as a line being.",
+                    params={"dimension_id": "1d"},
+                ),
+            ],
+            rewards=["xp:50", "ability:ping_neighbors"],
         ),
         CampaignNode(
             id="step-into-plane",
@@ -29,6 +40,15 @@ def _build_default_campaign(track: DimensionTrack) -> CampaignState:
             title="Step Into the Plane",
             description="Ascend to 2D, fold space, and sketch a path.",
             prerequisites=["awakening-1d"],
+            objectives=[
+                ObjectiveSpec(
+                    id="reach-2d",
+                    type=ObjectiveType.REACH_DIMENSION,
+                    description="Ascend into the plane.",
+                    params={"dimension_id": "2d"},
+                ),
+            ],
+            rewards=["xp:75", "ability:fold_line"],
         ),
         CampaignNode(
             id="stretch-into-space",
@@ -36,6 +56,15 @@ def _build_default_campaign(track: DimensionTrack) -> CampaignState:
             title="Stretch Into Space",
             description="Enter 3D space and manipulate 2D holograms.",
             prerequisites=["step-into-plane"],
+            objectives=[
+                ObjectiveSpec(
+                    id="reach-3d",
+                    type=ObjectiveType.REACH_DIMENSION,
+                    description="Enter volume space.",
+                    params={"dimension_id": "3d"},
+                ),
+            ],
+            rewards=["xp:100", "ability:slice_plane"],
         ),
         CampaignNode(
             id="hyper-sense",
@@ -43,6 +72,15 @@ def _build_default_campaign(track: DimensionTrack) -> CampaignState:
             title="Awaken as Hyper Being",
             description="Rotate hyperplanes and stabilize lower dimensions.",
             prerequisites=["stretch-into-space"],
+            objectives=[
+                ObjectiveSpec(
+                    id="reach-4d",
+                    type=ObjectiveType.REACH_DIMENSION,
+                    description="Enter hyper space.",
+                    params={"dimension_id": "4d"},
+                ),
+            ],
+            rewards=["xp:150", "ability:rotate_hyperplanes"],
         ),
     ]
     return CampaignState(nodes=nodes, track=track)
