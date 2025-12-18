@@ -740,3 +740,416 @@ class ObjectSelector:
         # Hint
         hint = fonts.small.render("Click elsewhere to deselect", True, THEME.text_muted)
         screen.blit(hint, (panel_x + 10, panel_y + panel_h - 20))
+
+
+# =============================================================================
+# DRAG & DROP SPAWNER MENU
+# =============================================================================
+
+@dataclass
+class SpawnItem:
+    """An item in the spawner menu."""
+    name: str
+    type_id: str
+    color: Tuple[int, int, int]
+    is_3d: bool = False
+    icon_verts: List[Tuple[int, int]] = None  # Simplified icon vertices
+
+
+class SpawnerMenu:
+    """Collapsible drag-and-drop object spawner menu.
+    
+    Features:
+    - Collapsible sidebar with object icons
+    - Drag objects onto the scene to spawn
+    - Search bar to filter objects by name
+    - Filter tabs for 4D/3D/All
+    - Click to spawn instantly
+    """
+    
+    # 4D Objects
+    ITEMS_4D = [
+        SpawnItem("Tesseract", "tesseract", (100, 180, 255)),
+        SpawnItem("16-Cell", "16cell", (255, 150, 100)),
+        SpawnItem("24-Cell", "24cell", (150, 255, 150)),
+        SpawnItem("5-Cell", "5cell", (255, 200, 100)),
+        SpawnItem("600-Cell", "600cell", (200, 150, 255)),
+        SpawnItem("Duoprism", "duoprism", (255, 150, 200)),
+        SpawnItem("Clifford", "clifford", (100, 255, 200)),
+    ]
+    
+    # 3D Objects
+    ITEMS_3D = [
+        SpawnItem("Cube", "cube", (255, 100, 100), is_3d=True),
+        SpawnItem("Tetra", "tetra", (100, 255, 100), is_3d=True),
+        SpawnItem("Octa", "octa", (100, 100, 255), is_3d=True),
+    ]
+    
+    def __init__(self, screen_height: int):
+        self.screen_height = screen_height
+        self.expanded = True
+        self.collapsed_width = 40
+        self.expanded_width = 180
+        
+        # Menu position (left side)
+        self.x = 0
+        self.y = 60
+        
+        # Item dimensions
+        self.item_height = 42
+        self.item_padding = 5
+        
+        # Search and filter
+        self.search_text = ""
+        self.search_active = False
+        self.filter_mode = "all"  # "all", "4d", "3d"
+        
+        # Drag state
+        self.dragging: Optional[SpawnItem] = None
+        self.drag_pos: Tuple[int, int] = (0, 0)
+        self.hover_index: Optional[int] = None
+        
+        # Scroll
+        self.scroll_offset = 0
+        self.max_visible = 10
+    
+    @property
+    def width(self) -> int:
+        return self.expanded_width if self.expanded else self.collapsed_width
+    
+    @property
+    def all_items(self) -> List[SpawnItem]:
+        return self.ITEMS_4D + self.ITEMS_3D
+    
+    def get_filtered_items(self) -> List[SpawnItem]:
+        """Get items filtered by search and type filter."""
+        items = []
+        
+        # Apply type filter
+        if self.filter_mode == "4d":
+            items = self.ITEMS_4D.copy()
+        elif self.filter_mode == "3d":
+            items = self.ITEMS_3D.copy()
+        else:
+            items = self.all_items.copy()
+        
+        # Apply search filter
+        if self.search_text:
+            search_lower = self.search_text.lower()
+            items = [item for item in items if search_lower in item.name.lower()]
+        
+        return items
+    
+    def toggle(self) -> None:
+        """Toggle expanded/collapsed state."""
+        self.expanded = not self.expanded
+        if not self.expanded:
+            self.search_active = False
+    
+    def get_menu_rect(self) -> pygame.Rect:
+        """Get the menu bounding rectangle."""
+        filtered = self.get_filtered_items()
+        # Header (toggle) + search bar + filter tabs + items
+        header_height = 85  # toggle + search + filters
+        items_height = len(filtered) * self.item_height
+        total_height = header_height + items_height + 10
+        height = min(total_height, self.screen_height - self.y - 20)
+        return pygame.Rect(self.x, self.y, self.width, height)
+    
+    def handle_event(self, event: pygame.event.Event, camera: Camera4D) -> Optional[Tuple[str, bool]]:
+        """Handle mouse and keyboard events. Returns (type_id, is_3d) if object should spawn."""
+        
+        # Handle text input for search
+        if event.type == pygame.KEYDOWN and self.search_active:
+            if event.key == pygame.K_BACKSPACE:
+                self.search_text = self.search_text[:-1]
+                return None
+            elif event.key == pygame.K_ESCAPE:
+                self.search_active = False
+                self.search_text = ""
+                return None
+            elif event.key == pygame.K_RETURN:
+                # Spawn first matching item on Enter
+                filtered = self.get_filtered_items()
+                if filtered:
+                    item = filtered[0]
+                    return (item.type_id, item.is_3d)
+                return None
+            elif event.unicode and event.unicode.isprintable():
+                self.search_text += event.unicode
+                return None
+        
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            mx, my = event.pos
+            menu_rect = self.get_menu_rect()
+            
+            # Check toggle button
+            toggle_rect = pygame.Rect(self.x, self.y - 25, self.width, 25)
+            if toggle_rect.collidepoint(mx, my):
+                self.toggle()
+                return None
+            
+            if not self.expanded:
+                return None
+            
+            # Check search bar click
+            search_rect = pygame.Rect(self.x + 5, self.y + 5, self.width - 10, 25)
+            if search_rect.collidepoint(mx, my):
+                self.search_active = True
+                return None
+            else:
+                self.search_active = False
+            
+            # Check filter tabs
+            filter_y = self.y + 35
+            tab_width = (self.width - 10) // 3
+            for i, mode in enumerate(["all", "4d", "3d"]):
+                tab_rect = pygame.Rect(self.x + 5 + i * tab_width, filter_y, tab_width, 22)
+                if tab_rect.collidepoint(mx, my):
+                    self.filter_mode = mode
+                    self.scroll_offset = 0
+                    return None
+            
+            # Check if clicking on an item
+            if menu_rect.collidepoint(mx, my):
+                item_idx = self._get_item_at(my)
+                filtered = self.get_filtered_items()
+                if item_idx is not None and item_idx < len(filtered):
+                    self.dragging = filtered[item_idx]
+                    self.drag_pos = (mx, my)
+        
+        elif event.type == pygame.MOUSEMOTION:
+            mx, my = event.pos
+            
+            if self.dragging:
+                self.drag_pos = (mx, my)
+            else:
+                # Update hover
+                menu_rect = self.get_menu_rect()
+                if menu_rect.collidepoint(mx, my) and self.expanded:
+                    self.hover_index = self._get_item_at(my)
+                else:
+                    self.hover_index = None
+        
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            if self.dragging:
+                mx, my = event.pos
+                menu_rect = self.get_menu_rect()
+                
+                # If released outside menu, spawn object
+                if not menu_rect.collidepoint(mx, my):
+                    result = (self.dragging.type_id, self.dragging.is_3d)
+                    self.dragging = None
+                    return result
+                else:
+                    # Click inside menu = instant spawn
+                    result = (self.dragging.type_id, self.dragging.is_3d)
+                    self.dragging = None
+                    return result
+        
+        elif event.type == pygame.MOUSEWHEEL:
+            mx, my = pygame.mouse.get_pos()
+            menu_rect = self.get_menu_rect()
+            if menu_rect.collidepoint(mx, my):
+                filtered = self.get_filtered_items()
+                self.scroll_offset = max(0, min(
+                    max(0, len(filtered) - self.max_visible),
+                    self.scroll_offset - event.y
+                ))
+        
+        return None
+    
+    def _get_item_at(self, y: int) -> Optional[int]:
+        """Get item index at y position (in filtered list)."""
+        # Header height: search bar (30) + filter tabs (27) + padding
+        header_height = 65
+        rel_y = y - self.y - header_height
+        
+        if rel_y < 0:
+            return None
+        
+        idx = int(rel_y // self.item_height) + self.scroll_offset
+        filtered = self.get_filtered_items()
+        
+        if 0 <= idx < len(filtered):
+            return idx
+        return None
+    
+    def draw(self, screen: pygame.Surface) -> None:
+        """Draw the spawner menu."""
+        fonts = Fonts.get()
+        menu_rect = self.get_menu_rect()
+        
+        # Toggle button
+        toggle_rect = pygame.Rect(self.x, self.y - 25, self.width, 25)
+        pygame.draw.rect(screen, THEME.bg_card, toggle_rect, border_radius=4)
+        pygame.draw.rect(screen, THEME.border, toggle_rect, 1, 4)
+        
+        arrow = "◀" if self.expanded else "▶"
+        label = f"{arrow} Objects" if self.expanded else arrow
+        text = fonts.small.render(label, True, THEME.text_secondary)
+        screen.blit(text, (toggle_rect.x + 8, toggle_rect.y + 5))
+        
+        if not self.expanded:
+            # Draw collapsed indicator dots
+            for i, item in enumerate(self.all_items[:6]):
+                y = self.y + i * 10
+                pygame.draw.circle(screen, item.color, (self.x + 20, y + 5), 4)
+            return
+        
+        # Menu background
+        surf = pygame.Surface((menu_rect.width, menu_rect.height), pygame.SRCALPHA)
+        surf.fill((20, 25, 35, 245))
+        screen.blit(surf, (menu_rect.x, menu_rect.y))
+        pygame.draw.rect(screen, THEME.border, menu_rect, 1, 6)
+        
+        y = menu_rect.y + 5
+        
+        # Search bar
+        search_rect = pygame.Rect(self.x + 5, y, self.width - 10, 25)
+        search_bg = THEME.bg_active if self.search_active else THEME.bg_card
+        pygame.draw.rect(screen, search_bg, search_rect, border_radius=4)
+        border_color = THEME.accent_cyan if self.search_active else THEME.border
+        pygame.draw.rect(screen, border_color, search_rect, 1, 4)
+        
+        # Search icon/placeholder
+        if self.search_text:
+            search_display = self.search_text
+            if self.search_active:
+                search_display += "|"  # Cursor
+            text = fonts.small.render(search_display, True, THEME.text_primary)
+        else:
+            text = fonts.small.render("🔍 Search...", True, THEME.text_muted)
+        screen.blit(text, (search_rect.x + 8, search_rect.y + 5))
+        
+        y += 30
+        
+        # Filter tabs
+        tab_width = (self.width - 10) // 3
+        filter_labels = [("All", "all"), ("4D", "4d"), ("3D", "3d")]
+        for i, (label, mode) in enumerate(filter_labels):
+            tab_rect = pygame.Rect(self.x + 5 + i * tab_width, y, tab_width, 22)
+            
+            is_active = self.filter_mode == mode
+            if is_active:
+                color = THEME.accent_purple if mode == "4d" else (
+                    THEME.accent_orange if mode == "3d" else THEME.accent_cyan
+                )
+                pygame.draw.rect(screen, color, tab_rect, border_radius=3)
+                text = fonts.small.render(label, True, THEME.bg_dark)
+            else:
+                pygame.draw.rect(screen, THEME.bg_card, tab_rect, border_radius=3)
+                pygame.draw.rect(screen, THEME.border, tab_rect, 1, 3)
+                text = fonts.small.render(label, True, THEME.text_secondary)
+            
+            screen.blit(text, (tab_rect.x + tab_rect.width//2 - text.get_width()//2, 
+                              tab_rect.y + 4))
+        
+        y += 30
+        
+        # Filtered items
+        filtered = self.get_filtered_items()
+        
+        if not filtered:
+            no_match = fonts.small.render("No matches", True, THEME.text_muted)
+            screen.blit(no_match, (self.x + 10, y + 10))
+        else:
+            # Draw visible items
+            visible_start = self.scroll_offset
+            visible_end = min(visible_start + self.max_visible, len(filtered))
+            
+            for i in range(visible_start, visible_end):
+                item = filtered[i]
+                self._draw_item(screen, fonts, item, menu_rect.x, y, i, menu_rect.width)
+                y += self.item_height
+            
+            # Scroll indicator
+            if len(filtered) > self.max_visible:
+                total = len(filtered)
+                bar_height = 60
+                bar_y = menu_rect.y + 65 + int((self.scroll_offset / total) * (menu_rect.height - 85))
+                pygame.draw.rect(screen, THEME.border_light, 
+                               (menu_rect.x + menu_rect.width - 6, bar_y, 4, bar_height), 
+                               border_radius=2)
+        
+        # Draw drag preview
+        if self.dragging:
+            self._draw_drag_preview(screen, fonts)
+    
+    def _draw_item(self, screen: pygame.Surface, fonts: Fonts, 
+                   item: SpawnItem, x: int, y: int, idx: int, width: int) -> None:
+        """Draw a single menu item."""
+        item_rect = pygame.Rect(x + 5, y, width - 10, self.item_height - 5)
+        
+        # Hover highlight
+        if self.hover_index == idx:
+            pygame.draw.rect(screen, THEME.bg_hover, item_rect, border_radius=4)
+        
+        pygame.draw.rect(screen, THEME.border, item_rect, 1, 4)
+        
+        # Color indicator
+        pygame.draw.circle(screen, item.color, (x + 22, y + self.item_height // 2 - 2), 8)
+        
+        # Icon shape (simplified)
+        if item.is_3d:
+            # Square for 3D
+            pygame.draw.rect(screen, item.color, (x + 16, y + self.item_height // 2 - 8, 12, 12), 2)
+        else:
+            # Diamond for 4D
+            cx, cy = x + 22, y + self.item_height // 2 - 2
+            points = [(cx, cy - 8), (cx + 8, cy), (cx, cy + 8), (cx - 8, cy)]
+            pygame.draw.polygon(screen, item.color, points, 2)
+        
+        # Name
+        text = fonts.small.render(item.name, True, THEME.text_primary)
+        screen.blit(text, (x + 40, y + self.item_height // 2 - 8))
+        
+        # Dimension badge
+        dim = "3D" if item.is_3d else "4D"
+        badge_color = THEME.accent_orange if item.is_3d else THEME.accent_purple
+        badge = fonts.small.render(dim, True, badge_color)
+        screen.blit(badge, (x + width - 35, y + self.item_height // 2 - 8))
+    
+    def _draw_drag_preview(self, screen: pygame.Surface, fonts: Fonts) -> None:
+        """Draw preview while dragging."""
+        if not self.dragging:
+            return
+        
+        mx, my = self.drag_pos
+        
+        # Draw object preview at cursor
+        size = 40
+        
+        # Background
+        surf = pygame.Surface((size + 20, size + 20), pygame.SRCALPHA)
+        surf.fill((20, 25, 35, 180))
+        screen.blit(surf, (mx - size//2 - 10, my - size//2 - 10))
+        
+        # Shape
+        if self.dragging.is_3d:
+            # Cube wireframe
+            pygame.draw.rect(screen, self.dragging.color, 
+                           (mx - size//2, my - size//2, size, size), 2)
+        else:
+            # Tesseract-like shape
+            outer = size // 2
+            inner = size // 3
+            # Outer square
+            pygame.draw.rect(screen, self.dragging.color,
+                           (mx - outer, my - outer, outer * 2, outer * 2), 2)
+            # Inner square
+            pygame.draw.rect(screen, self.dragging.color,
+                           (mx - inner, my - inner, inner * 2, inner * 2), 2)
+            # Connect corners
+            pygame.draw.line(screen, self.dragging.color, (mx - outer, my - outer), (mx - inner, my - inner), 1)
+            pygame.draw.line(screen, self.dragging.color, (mx + outer, my - outer), (mx + inner, my - inner), 1)
+            pygame.draw.line(screen, self.dragging.color, (mx - outer, my + outer), (mx - inner, my + inner), 1)
+            pygame.draw.line(screen, self.dragging.color, (mx + outer, my + outer), (mx + inner, my + inner), 1)
+        
+        # Label
+        label = fonts.small.render(self.dragging.name, True, self.dragging.color)
+        screen.blit(label, (mx - label.get_width()//2, my + size//2 + 5))
+        
+        # Hint
+        hint = fonts.small.render("Release to spawn", True, THEME.text_muted)
+        screen.blit(hint, (mx - hint.get_width()//2, my + size//2 + 22))

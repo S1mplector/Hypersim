@@ -15,7 +15,7 @@ import random
 from dataclasses import dataclass, field
 from typing import List, Tuple, Any
 
-import numpy as np
+import numpy as npk
 import pygame
 
 from .base_app import BaseApp, Camera4D, THEME, Fonts
@@ -25,6 +25,7 @@ from .sandbox_features import (
     Minimap, MinimapView,
     SandboxHUD,
     ObjectSelector,
+    SpawnerMenu,
 )
 from hypersim.objects import (
     Hypercube, SixteenCell, TwentyFourCell, Duoprism,
@@ -138,6 +139,7 @@ class Sandbox4D(BaseApp):
         self.minimap = Minimap(width - 170, 80, size=150)
         self.hud = SandboxHUD(width, height)
         self.selector = ObjectSelector()
+        self.spawner_menu = SpawnerMenu(height)
         
         self._spawn_defaults()
     
@@ -167,6 +169,7 @@ class Sandbox4D(BaseApp):
         self.minimap = Minimap(self.width - 170, 80, size=150)
         self.hud = SandboxHUD(self.width, self.height)
         self.selector = ObjectSelector()
+        self.spawner_menu = SpawnerMenu(self.height)
         
         self._spawn_defaults()
     
@@ -220,7 +223,17 @@ class Sandbox4D(BaseApp):
             if event.type == pygame.QUIT:
                 return False
             
-            elif event.type == pygame.KEYDOWN:
+            # Handle spawner menu drag-and-drop
+            spawn_result = self.spawner_menu.handle_event(event, self.camera)
+            if spawn_result:
+                type_id, is_3d = spawn_result
+                if is_3d:
+                    self.spawn_3d(type_id)
+                else:
+                    self.spawn_4d(type_id)
+                continue
+            
+            if event.type == pygame.KEYDOWN:
                 self.keys_held[event.key] = True
                 
                 if event.key == pygame.K_ESCAPE:
@@ -378,6 +391,9 @@ class Sandbox4D(BaseApp):
         # Draw minimap
         self.minimap.draw(self.screen, self.camera, self.objects)
         
+        # Draw spawner menu (on top of other UI)
+        self.spawner_menu.draw(self.screen)
+        
         if self.show_help:
             self._draw_help()
     
@@ -450,10 +466,10 @@ class Sandbox4D(BaseApp):
     def _draw_help(self) -> None:
         """Draw help panel."""
         fonts = Fonts.get()
-        panel_w, panel_h = 340, 380
+        panel_w, panel_h = 340, 420
         
         self.draw_panel(pygame.Rect(15, 15, panel_w, panel_h), 
-                       alpha=230, border_color=THEME.border)
+                       alpha=240, border_color=THEME.border)
         
         self.draw_text("4D Sandbox Controls", (30, 25), THEME.text_primary, fonts.title)
         
@@ -463,10 +479,9 @@ class Sandbox4D(BaseApp):
                          ("Q/E", "W axis (4D!)"), ("Scroll", "Adjust W")]),
             ("View", [("Mouse", "Look"), ("Tab/Click", "Capture"), 
                      ("M/N", "Minimap on/cycle"), ("Esc", "Release/Quit")]),
-            ("Spawn", [("1-7", "4D objects"), ("F1-F3", "3D objects"), 
-                      ("[ / ]", "Cycle type"), ("T", "Toggle 4D/3D"), ("+/-", "Size")]),
+            ("Spawn", [("1-7", "4D objects"), ("F1-F3", "3D objects"), ("+/-", "Size")]),
             ("Animation", [("P", "Pause/Resume"), (",/.", "Speed -/+")]),
-            ("Select", [("Click", "Select object"), ("R-Click", "Deselect")]),
+            ("Select", [("Click obj", "Select"), ("R-Click", "Deselect")]),
         ]
         
         for section, items in sections:
@@ -476,10 +491,11 @@ class Sandbox4D(BaseApp):
                 self.draw_text(key, (40, y), (200, 200, 120), fonts.small)
                 self.draw_text(desc, (145, y), THEME.text_muted, fonts.small)
                 y += 16
-            y += 6
+            y += 8
         
-        self.draw_text("H: help | G: grid | Objects auto-animate!", (30, panel_h - 12), 
-                      THEME.text_muted, fonts.small)
+        # Footer with extra spacing
+        self.draw_text("H: help | G: grid", (30, panel_h - 35), THEME.text_muted, fonts.small)
+        self.draw_text("Objects auto-animate by default!", (30, panel_h - 18), THEME.accent_cyan, fonts.small)
 
 
 def run_sandbox_4d() -> None:
