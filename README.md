@@ -8,6 +8,10 @@ A Python framework for 4D visualization and simulation. This project provides to
 - 4D to 3D perspective projection utilities
 - Interactive visualization using Pygame (real-time controls)
 - Extensible architecture for adding new 4D objects and renderers
+- **NEW: Cross-dimensional game engine** with playable 1D→2D→3D→4D progression
+- Entity Component System (ECS) for flexible gameplay
+- Dimension-specific controllers, renderers, and AI systems
+- Campaign/progression system with save/load support
 
 ## Installation
 
@@ -77,11 +81,38 @@ hypersim/
 Check the `examples/` directory for example scripts. To run the included examples:
 
 ```bash
+# Visualization demos
 python examples/pygame_simplex.py
 python examples/pygame_sixteen_cell.py
+
+# Play the game (NEW!)
+python examples/play_game.py              # Full playable game
+python -m hypersim.cli --demo play        # Alternative: via CLI
+
+# Other demos
 python examples/game_session_bootstrap.py  # progression/campaign bootstrap
 python -m hypersim.cli --demo game         # progression-enabled sandbox mode
 ```
+
+## Playing the Game
+
+HyperSim now includes a playable cross-dimensional adventure! Start as a 1D being on a line and ascend through dimensions.
+
+**Controls:**
+- **A/D** or **Arrow Keys**: Move (1D)
+- **WASD**: Move in plane (2D)
+- **E**: Interact with portals
+- **Space**: Use ability
+- **P**: Pause
+- **R**: Restart level
+- **ESC**: Quit
+
+**Gameplay:**
+1. Start in 1D - you're a point on a line with limited visibility
+2. Collect energy orbs and avoid enemies
+3. Reach the portal to ascend to 2D
+4. In 2D, explore the plane with full directional movement
+5. Continue ascending through 3D and eventually 4D!
 
 ## Contributing
 

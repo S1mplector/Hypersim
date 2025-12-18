@@ -1,0 +1,412 @@
+"""Main game loop integrating ECS, rendering, and session management."""
+from __future__ import annotations
+
+from typing import Dict, Optional, TYPE_CHECKING
+
+import pygame
+import numpy as np
+
+from hypersim.game.ecs.world import World
+from hypersim.game.ecs.entity import Entity
+from hypersim.game.ecs.component import (
+    Transform, Velocity, Renderable, Collider, ColliderShape,
+    Health, Controller, AIBrain, DimensionAnchor, Pickup, Portal
+)
+from hypersim.game.controllers.base import InputHandler
+from hypersim.game.systems.input_system import InputSystem
+from hypersim.game.systems.physics_system import PhysicsSystem
+from hypersim.game.systems.collision_system import CollisionSystem
+from hypersim.game.systems.damage_system import DamageSystem
+from hypersim.game.systems.ai_system import AISystem
+from hypersim.game.rendering.base_renderer import DimensionRenderer
+from hypersim.game.rendering.line_renderer import LineRenderer
+from hypersim.game.rendering.plane_renderer import PlaneRenderer
+
+if TYPE_CHECKING:
+    from hypersim.game.session import GameSession
+
+
+class GameLoop:
+    """Main game loop that orchestrates all systems."""
+    
+    def __init__(
+        self,
+        session: "GameSession",
+        width: int = 1024,
+        height: int = 768,
+        title: str = "HyperSim"
+    ):
+        self.session = session
+        self.width = width
+        self.height = height
+        self.title = title
+        
+        # Initialize pygame
+        pygame.init()
+        pygame.font.init()
+        self.screen = pygame.display.set_mode((width, height))
+        pygame.display.set_caption(title)
+        self.clock = pygame.time.Clock()
+        
+        # Create world and systems
+        self.world = World()
+        self.input_handler = InputHandler()
+        
+        # Initialize systems
+        self.input_system = InputSystem(self.input_handler)
+        self.ai_system = AISystem()
+        self.physics_system = PhysicsSystem()
+        self.collision_system = CollisionSystem()
+        self.damage_system = DamageSystem()
+        
+        self.world.add_system(self.input_system)
+        self.world.add_system(self.ai_system)
+        self.world.add_system(self.physics_system)
+        self.world.add_system(self.collision_system)
+        self.world.add_system(self.damage_system)
+        
+        # Initialize renderers per dimension
+        self._renderers: Dict[str, DimensionRenderer] = {
+            "1d": LineRenderer(self.screen),
+            "2d": PlaneRenderer(self.screen),
+        }
+        
+        # Game state
+        self.running = False
+        self.paused = False
+        self.target_fps = 60
+        
+        # Wire up event handlers
+        self._setup_event_handlers()
+    
+    def _setup_event_handlers(self) -> None:
+        """Set up event handlers for game events."""
+        
+        def on_collision(event):
+            # Check for damage-dealing collisions
+            entity_a = self.world.get(event.data.get("entity_a"))
+            entity_b = self.world.get(event.data.get("entity_b"))
+            
+            if not entity_a or not entity_b:
+                return
+            
+            # Player colliding with enemy
+            if entity_a.has_tag("player") and entity_b.has_tag("enemy"):
+                self.damage_system.queue_damage(entity_a.id, 10.0)
+            elif entity_b.has_tag("player") and entity_a.has_tag("enemy"):
+                self.damage_system.queue_damage(entity_b.id, 10.0)
+            
+            # Player colliding with pickup
+            if entity_a.has_tag("player") and entity_b.get(Pickup):
+                self._collect_pickup(entity_a, entity_b)
+            elif entity_b.has_tag("player") and entity_a.get(Pickup):
+                self._collect_pickup(entity_b, entity_a)
+        
+        def on_interact(event):
+            player = self.world.get(event.source_entity_id)
+            if not player:
+                return
+            
+            player_transform = player.get(Transform)
+            if not player_transform:
+                return
+            
+            # Check for nearby portals
+            for entity in self.world.entities.values():
+                portal = entity.get(Portal)
+                if not portal or not portal.active:
+                    continue
+                
+                entity_transform = entity.get(Transform)
+                if not entity_transform:
+                    continue
+                
+                # Check distance
+                dist = np.linalg.norm(
+                    player_transform.position[:2] - entity_transform.position[:2]
+                )
+                if dist < 2.0:
+                    self._use_portal(portal)
+                    break
+        
+        self.world.on_event("collision", on_collision)
+        self.world.on_event("player_interact", on_interact)
+    
+    def _collect_pickup(self, player: Entity, pickup_entity: Entity) -> None:
+        """Handle player collecting a pickup."""
+        pickup = pickup_entity.get(Pickup)
+        if pickup.collected:
+            return
+        
+        pickup.collected = True
+        pickup_entity.active = False
+        
+        self.session.record_event("collect", item=pickup.item_type, count=pickup.value)
+        self.world.emit("pickup_collected", item=pickup.item_type, entity_id=pickup_entity.id)
+    
+    def _use_portal(self, portal: Portal) -> None:
+        """Handle player entering a portal."""
+        if portal.target_dimension:
+            # Dimension transition
+            self.session.set_dimension(portal.target_dimension)
+            self._reload_dimension()
+    
+    def _reload_dimension(self) -> None:
+        """Reload the world for the current dimension."""
+        # Clear existing entities
+        self.world.clear()
+        
+        # Spawn player and entities for new dimension
+        dim_id = self.session.active_dimension.id
+        self._spawn_default_level(dim_id)
+        
+        # Update input system
+        self.input_system.set_dimension(dim_id)
+    
+    def _spawn_default_level(self, dimension_id: str) -> None:
+        """Spawn default entities for a dimension."""
+        if dimension_id == "1d":
+            self._spawn_1d_level()
+        elif dimension_id == "2d":
+            self._spawn_2d_level()
+        else:
+            # Default: just spawn player
+            self._spawn_player(dimension_id, np.zeros(4))
+    
+    def _spawn_player(self, dimension_id: str, position: np.ndarray) -> Entity:
+        """Spawn the player entity."""
+        controller_type = "line" if dimension_id == "1d" else "plane"
+        
+        player = Entity(id="player")
+        player.add(Transform(position=position.copy()))
+        player.add(Velocity())
+        player.add(Renderable(color=(80, 200, 255), glow=1.0))
+        player.add(Collider(
+            shape=ColliderShape.SEGMENT if dimension_id == "1d" else ColliderShape.CIRCLE,
+            size=np.array([0.5]),
+        ))
+        player.add(Health(current=100, max=100))
+        player.add(Controller(controller_type=controller_type, speed=8.0))
+        player.add(DimensionAnchor(dimension_id=dimension_id))
+        player.tag("player", "controllable")
+        
+        self.world.spawn(player)
+        return player
+    
+    def _spawn_1d_level(self) -> None:
+        """Spawn a basic 1D tutorial level."""
+        # Set world bounds
+        self.physics_system.set_bounds("1d", 0, -45.0, 45.0)
+        
+        # Spawn player at origin
+        self._spawn_player("1d", np.array([0.0, 0.0, 0.0, 0.0]))
+        
+        # Spawn some enemies
+        enemy_positions = [-15.0, 10.0, 25.0]
+        for i, x in enumerate(enemy_positions):
+            enemy = Entity(id=f"enemy_{i}")
+            enemy.add(Transform(position=np.array([x, 0.0, 0.0, 0.0])))
+            enemy.add(Velocity())
+            enemy.add(Renderable(color=(200, 50, 50)))
+            enemy.add(Collider(shape=ColliderShape.SEGMENT, size=np.array([0.8])))
+            enemy.add(Health(current=30, max=30))
+            enemy.add(AIBrain(
+                behavior="oscillate",
+                state={"center": x, "amplitude": 3.0, "speed": 2.0, "direction": 1}
+            ))
+            enemy.add(DimensionAnchor(dimension_id="1d"))
+            enemy.tag("enemy")
+            self.world.spawn(enemy)
+        
+        # Spawn pickups
+        pickup_positions = [-8.0, 5.0, 18.0]
+        for i, x in enumerate(pickup_positions):
+            pickup = Entity(id=f"pickup_{i}")
+            pickup.add(Transform(position=np.array([x, 0.0, 0.0, 0.0])))
+            pickup.add(Renderable(color=(255, 220, 50)))
+            pickup.add(Collider(shape=ColliderShape.SEGMENT, size=np.array([0.3]), is_trigger=True))
+            pickup.add(Pickup(item_type="energy", value=1))
+            pickup.add(DimensionAnchor(dimension_id="1d"))
+            pickup.tag("pickup")
+            self.world.spawn(pickup)
+        
+        # Spawn portal to 2D at the end
+        portal = Entity(id="portal_2d")
+        portal.add(Transform(position=np.array([40.0, 0.0, 0.0, 0.0])))
+        portal.add(Renderable(color=(150, 50, 255)))
+        portal.add(Collider(shape=ColliderShape.SEGMENT, size=np.array([1.0]), is_trigger=True))
+        portal.add(Portal(target_dimension="2d", active=True))
+        portal.add(DimensionAnchor(dimension_id="1d"))
+        portal.tag("portal")
+        self.world.spawn(portal)
+    
+    def _spawn_2d_level(self) -> None:
+        """Spawn a basic 2D level."""
+        # Set world bounds
+        self.physics_system.set_bounds("2d", 0, -40.0, 40.0)
+        self.physics_system.set_bounds("2d", 1, -30.0, 30.0)
+        
+        # Spawn player
+        self._spawn_player("2d", np.array([0.0, 0.0, 0.0, 0.0]))
+        
+        # Spawn enemies
+        enemy_configs = [
+            ((-10.0, 5.0), "patrol", [np.array([-10.0, 5.0]), np.array([-10.0, -5.0])]),
+            ((10.0, -5.0), "patrol", [np.array([10.0, -5.0]), np.array([10.0, 5.0])]),
+            ((0.0, 15.0), "chase", []),
+        ]
+        
+        for i, (pos, behavior, patrol) in enumerate(enemy_configs):
+            enemy = Entity(id=f"enemy_{i}")
+            enemy.add(Transform(position=np.array([pos[0], pos[1], 0.0, 0.0])))
+            enemy.add(Velocity())
+            enemy.add(Renderable(color=(200, 50, 50)))
+            enemy.add(Collider(shape=ColliderShape.CIRCLE, size=np.array([0.6])))
+            enemy.add(Health(current=50, max=50))
+            enemy.add(AIBrain(
+                behavior=behavior,
+                patrol_points=patrol,
+                detect_range=12.0,
+                attack_range=1.5,
+                state={"speed": 3.5}
+            ))
+            enemy.add(DimensionAnchor(dimension_id="2d"))
+            enemy.tag("enemy")
+            self.world.spawn(enemy)
+        
+        # Spawn pickups
+        pickup_positions = [(5.0, 5.0), (-5.0, -5.0), (15.0, 10.0), (-15.0, -10.0)]
+        for i, pos in enumerate(pickup_positions):
+            pickup = Entity(id=f"pickup_{i}")
+            pickup.add(Transform(position=np.array([pos[0], pos[1], 0.0, 0.0])))
+            pickup.add(Renderable(color=(255, 220, 50)))
+            pickup.add(Collider(shape=ColliderShape.CIRCLE, size=np.array([0.4]), is_trigger=True))
+            pickup.add(Pickup(item_type="energy", value=1))
+            pickup.add(DimensionAnchor(dimension_id="2d"))
+            pickup.tag("pickup")
+            self.world.spawn(pickup)
+        
+        # Portal to 3D (placeholder)
+        portal = Entity(id="portal_3d")
+        portal.add(Transform(position=np.array([30.0, 20.0, 0.0, 0.0])))
+        portal.add(Renderable(color=(150, 50, 255)))
+        portal.add(Collider(shape=ColliderShape.CIRCLE, size=np.array([1.2]), is_trigger=True))
+        portal.add(Portal(target_dimension="3d", active=True))
+        portal.add(DimensionAnchor(dimension_id="2d"))
+        portal.tag("portal")
+        self.world.spawn(portal)
+    
+    def run(self) -> None:
+        """Run the main game loop."""
+        self.running = True
+        
+        # Initialize first dimension
+        self._reload_dimension()
+        
+        while self.running:
+            dt = self.clock.tick(self.target_fps) / 1000.0
+            
+            # Process events
+            self._process_events()
+            
+            if not self.paused:
+                # Update systems
+                self.world.update(dt)
+                
+                # Process game events for session/objectives
+                for event in self.world.drain_events():
+                    self.session.record_event(event.event_type, **event.data)
+            
+            # Render
+            self._render()
+            
+            # End frame
+            self.input_handler.end_frame()
+            pygame.display.flip()
+        
+        pygame.quit()
+    
+    def _process_events(self) -> None:
+        """Process pygame events."""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    self.running = False
+                elif event.key == pygame.K_p:
+                    self.paused = not self.paused
+                elif event.key == pygame.K_r:
+                    # Reload level
+                    self._reload_dimension()
+            
+            # Forward to input handler
+            self.input_handler.process_event(event)
+    
+    def _render(self) -> None:
+        """Render the current frame."""
+        dim_id = self.session.active_dimension.id
+        renderer = self._renderers.get(dim_id)
+        
+        if renderer:
+            renderer.render(self.world, self.session.active_dimension)
+        else:
+            # Fallback: clear screen
+            self.screen.fill((20, 20, 30))
+        
+        # Draw pause overlay
+        if self.paused:
+            self._draw_pause_overlay()
+        
+        # Draw session info
+        self._draw_session_info()
+    
+    def _draw_pause_overlay(self) -> None:
+        """Draw pause screen overlay."""
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 128))
+        self.screen.blit(overlay, (0, 0))
+        
+        font = pygame.font.Font(None, 72)
+        text = font.render("PAUSED", True, (255, 255, 255))
+        rect = text.get_rect(center=(self.width // 2, self.height // 2))
+        self.screen.blit(text, rect)
+        
+        small_font = pygame.font.Font(None, 32)
+        hint = small_font.render("Press P to resume, ESC to quit", True, (180, 180, 180))
+        hint_rect = hint.get_rect(center=(self.width // 2, self.height // 2 + 50))
+        self.screen.blit(hint, hint_rect)
+    
+    def _draw_session_info(self) -> None:
+        """Draw session/progression info."""
+        font = pygame.font.Font(None, 20)
+        
+        # XP
+        xp_text = font.render(f"XP: {self.session.progression.xp}", True, (180, 180, 100))
+        self.screen.blit(xp_text, (self.width - 80, 10))
+        
+        # Active mission
+        if self.session.progression.active_node_id:
+            mission_text = font.render(
+                f"Mission: {self.session.progression.active_node_id}",
+                True, (150, 150, 200)
+            )
+            self.screen.blit(mission_text, (self.width - 200, 30))
+        
+        # Controls hint
+        controls = font.render("WASD/Arrows: Move | E: Interact | P: Pause | R: Restart", True, (100, 100, 120))
+        self.screen.blit(controls, (10, self.height - 20))
+
+
+def run_game(session: Optional["GameSession"] = None) -> None:
+    """Convenience function to run the game."""
+    from hypersim.game import GameSession, DimensionTrack, DEFAULT_DIMENSIONS
+    from hypersim.game.save import load_progression
+    
+    if session is None:
+        track = DimensionTrack(DEFAULT_DIMENSIONS)
+        progression = load_progression()
+        session = GameSession(dimensions=track, progression=progression)
+    
+    game = GameLoop(session, title="HyperSim - Cross-Dimensional Adventure")
+    game.run()
