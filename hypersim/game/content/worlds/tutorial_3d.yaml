@@ -1,0 +1,116 @@
+world:
+  id: tutorial_3d
+  dimension: 3d
+  name: "Stretch Into Space"
+  description: "True volume awaits. Navigate 3D space and find the hyperportal."
+  spawn: [0.0, 1.5, 0.0]
+  bounds:
+    x: [-50.0, 50.0]
+    y: [-5.0, 50.0]
+    z: [-50.0, 50.0]
+  next_world: tutorial_4d
+
+entities:
+  # 3D patrol enemies
+  - type: enemy
+    position: [15.0, 1.5, 15.0]
+    params:
+      behavior: patrol
+      patrol_points:
+        - [15.0, 1.5, 15.0]
+        - [15.0, 1.5, -15.0]
+      speed: 4.0
+      health: 75
+      size: 0.8
+
+  - type: enemy
+    position: [-15.0, 1.5, -10.0]
+    params:
+      behavior: patrol
+      patrol_points:
+        - [-15.0, 1.5, -10.0]
+        - [-15.0, 1.5, 20.0]
+      speed: 3.5
+      health: 75
+
+  # Flying chasers
+  - type: enemy
+    position: [0.0, 5.0, 25.0]
+    params:
+      behavior: chase
+      detect_range: 18.0
+      speed: 5.0
+      health: 80
+      color: [255, 100, 50]
+    tags: [flyer]
+
+  - type: enemy
+    position: [20.0, 3.0, -20.0]
+    params:
+      behavior: chase
+      detect_range: 15.0
+      speed: 4.5
+      health: 80
+    tags: [flyer]
+
+  # Energy pickups in 3D space
+  - type: pickup
+    position: [8.0, 1.5, 8.0]
+    params:
+      item: energy
+      value: 1
+
+  - type: pickup
+    position: [-8.0, 1.5, -8.0]
+    params:
+      item: energy
+      value: 1
+
+  - type: pickup
+    position: [20.0, 1.5, 15.0]
+    params:
+      item: energy
+      value: 1
+
+  - type: pickup
+    position: [-20.0, 1.5, -15.0]
+    params:
+      item: energy
+      value: 1
+
+  # Elevated pickup
+  - type: pickup
+    position: [0.0, 8.0, 0.0]
+    params:
+      item: energy
+      value: 2
+      color: [255, 255, 100]
+
+  - type: pickup
+    position: [25.0, 1.5, 0.0]
+    params:
+      item: energy
+      value: 1
+
+  # Portal to 4D
+  - type: portal
+    position: [40.0, 1.5, 40.0]
+    params:
+      target_dimension: 4d
+      target_world: tutorial_4d
+      size: 2.0
+      color: [180, 100, 255]
+
+objectives:
+  - id: collect_energy_3d
+    type: collect
+    target: 5
+    description: "Collect 5 energy orbs in 3D space"
+    params:
+      item: energy
+
+  - id: reach_4d
+    type: reach_dimension
+    description: "Enter the hyperportal to 4D"
+    params:
+      dimension_id: 4d

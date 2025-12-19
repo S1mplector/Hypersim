@@ -1,0 +1,77 @@
+world:
+  id: tutorial_1d
+  dimension: 1d
+  name: "Awakening on the Line"
+  description: "Your first moments as a 1D being. Learn to move and sense your neighbors."
+  spawn: [0.0]
+  bounds:
+    x: [-50.0, 50.0]
+  next_world: tutorial_2d
+
+entities:
+  # Enemies - oscillating blockers
+  - type: enemy
+    position: [-15.0]
+    params:
+      behavior: oscillate
+      amplitude: 4.0
+      speed: 2.0
+      health: 30
+
+  - type: enemy
+    position: [12.0]
+    params:
+      behavior: oscillate
+      amplitude: 3.0
+      speed: 2.5
+      health: 30
+
+  - type: enemy
+    position: [28.0]
+    params:
+      behavior: chase
+      detect_range: 8.0
+      speed: 3.0
+      health: 40
+
+  # Pickups - energy orbs
+  - type: pickup
+    position: [-8.0]
+    params:
+      item: energy
+      value: 1
+
+  - type: pickup
+    position: [5.0]
+    params:
+      item: energy
+      value: 1
+
+  - type: pickup
+    position: [20.0]
+    params:
+      item: energy
+      value: 1
+
+  # Portal to 2D
+  - type: portal
+    position: [45.0]
+    params:
+      target_dimension: 2d
+      target_world: tutorial_2d
+      size: 1.2
+      color: [150, 50, 255]
+
+objectives:
+  - id: collect_energy
+    type: collect
+    target: 3
+    description: "Collect 3 energy orbs"
+    params:
+      item: energy
+
+  - id: reach_portal
+    type: reach_dimension
+    description: "Reach the portal to 2D"
+    params:
+      dimension_id: 2d

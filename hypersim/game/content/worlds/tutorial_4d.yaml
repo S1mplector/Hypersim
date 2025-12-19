@@ -1,0 +1,123 @@
+world:
+  id: tutorial_4d
+  dimension: 4d
+  name: "Hyper Being"
+  description: "You have transcended into the fourth dimension. Master the W-axis and claim victory."
+  spawn: [0.0, 1.5, 0.0, 0.0]
+  bounds:
+    x: [-50.0, 50.0]
+    y: [-5.0, 50.0]
+    z: [-50.0, 50.0]
+  next_world: null  # End of tutorial
+
+entities:
+  # 4D enemies spread across W slices
+  - type: enemy
+    position: [12.0, 1.5, 12.0, 0.0]
+    params:
+      behavior: patrol
+      speed: 3.5
+      health: 100
+
+  - type: enemy
+    position: [-12.0, 1.5, -8.0, 0.5]
+    params:
+      behavior: chase
+      detect_range: 12.0
+      speed: 4.0
+      health: 100
+
+  - type: enemy
+    position: [0.0, 1.5, 22.0, -0.5]
+    params:
+      behavior: chase
+      detect_range: 10.0
+      speed: 3.5
+      health: 100
+
+  # Enemy in a different W slice
+  - type: enemy
+    position: [18.0, 1.5, -18.0, 1.0]
+    params:
+      behavior: patrol
+      speed: 3.0
+      health: 120
+      color: [255, 50, 150]
+    tags: [shifter]
+
+  - type: enemy
+    position: [8.0, 1.5, 8.0, -1.0]
+    params:
+      behavior: chase
+      detect_range: 15.0
+      speed: 4.5
+      health: 100
+    tags: [shifter]
+
+  # Hypercrystals spread across W
+  - type: pickup
+    position: [6.0, 1.5, 6.0, 0.0]
+    params:
+      item: hypercrystal
+      value: 2
+      color: [200, 150, 255]
+
+  - type: pickup
+    position: [-6.0, 1.5, -6.0, 0.0]
+    params:
+      item: hypercrystal
+      value: 2
+      color: [200, 150, 255]
+
+  - type: pickup
+    position: [18.0, 1.5, 12.0, 0.5]
+    params:
+      item: hypercrystal
+      value: 2
+      color: [200, 150, 255]
+
+  - type: pickup
+    position: [-18.0, 1.5, -12.0, -0.5]
+    params:
+      item: hypercrystal
+      value: 2
+      color: [200, 150, 255]
+
+  # Rare crystal in deep W
+  - type: pickup
+    position: [0.0, 3.0, 0.0, 1.5]
+    params:
+      item: hypercrystal
+      value: 5
+      color: [255, 200, 100]
+    tags: [rare]
+
+  - type: pickup
+    position: [25.0, 1.5, 0.0, -1.0]
+    params:
+      item: hypercrystal
+      value: 2
+
+  # Victory portal - completes the game
+  - type: portal
+    position: [0.0, 1.5, 48.0, 0.0]
+    params:
+      target_dimension: 1d
+      target_world: tutorial_1d
+      size: 2.5
+      color: [255, 220, 100]
+    tags: [victory]
+
+objectives:
+  - id: collect_hypercrystals
+    type: collect
+    target: 6
+    description: "Collect 6 hypercrystals across the W-axis"
+    params:
+      item: hypercrystal
+
+  - id: victory
+    type: interact
+    description: "Enter the victory portal"
+    params:
+      target: victory

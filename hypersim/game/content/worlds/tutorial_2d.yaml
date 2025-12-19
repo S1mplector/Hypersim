@@ -1,0 +1,99 @@
+world:
+  id: tutorial_2d
+  dimension: 2d
+  name: "Step Into the Plane"
+  description: "Experience freedom of movement in two dimensions. Watch out for patrol enemies."
+  spawn: [0.0, 0.0]
+  bounds:
+    x: [-40.0, 40.0]
+    y: [-30.0, 30.0]
+  next_world: tutorial_3d
+
+entities:
+  # Patrol enemies
+  - type: enemy
+    position: [-12.0, 8.0]
+    params:
+      behavior: patrol
+      patrol_points:
+        - [-12.0, 8.0]
+        - [-12.0, -8.0]
+      speed: 3.0
+      health: 50
+
+  - type: enemy
+    position: [12.0, -5.0]
+    params:
+      behavior: patrol
+      patrol_points:
+        - [12.0, -5.0]
+        - [12.0, 10.0]
+      speed: 3.5
+      health: 50
+
+  # Chase enemy
+  - type: enemy
+    position: [0.0, 18.0]
+    params:
+      behavior: chase
+      detect_range: 12.0
+      speed: 4.0
+      health: 60
+      color: [255, 80, 80]
+
+  # Pickups scattered across the plane
+  - type: pickup
+    position: [6.0, 6.0]
+    params:
+      item: energy
+      value: 1
+
+  - type: pickup
+    position: [-6.0, -6.0]
+    params:
+      item: energy
+      value: 1
+
+  - type: pickup
+    position: [18.0, 12.0]
+    params:
+      item: energy
+      value: 1
+
+  - type: pickup
+    position: [-18.0, -12.0]
+    params:
+      item: energy
+      value: 1
+
+  # Key pickup for portal
+  - type: pickup
+    position: [-20.0, 15.0]
+    params:
+      item: portal_key
+      item_id: key_2d
+      value: 1
+      color: [100, 255, 100]
+
+  # Portal to 3D
+  - type: portal
+    position: [32.0, 22.0]
+    params:
+      target_dimension: 3d
+      target_world: tutorial_3d
+      size: 1.5
+      color: [150, 80, 255]
+
+objectives:
+  - id: collect_energy_2d
+    type: collect
+    target: 4
+    description: "Collect 4 energy orbs"
+    params:
+      item: energy
+
+  - id: reach_3d
+    type: reach_dimension
+    description: "Enter the portal to 3D space"
+    params:
+      dimension_id: 3d

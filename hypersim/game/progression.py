@@ -19,6 +19,11 @@ class ProgressionState:
     active_node_id: Optional[str] = None
     mission_progress: Dict[str, Dict[str, float]] = field(default_factory=dict)
     unlocked_abilities: Set[str] = field(default_factory=set)
+    
+    # 4D Evolution tracking
+    evolution_form: int = 0  # PolytopeForm enum value
+    evolution_xp: int = 0
+    evolution_forms_unlocked: List[int] = field(default_factory=lambda: [0])
 
     def __post_init__(self) -> None:
         if self.current_dimension not in self.unlocked_dimensions:

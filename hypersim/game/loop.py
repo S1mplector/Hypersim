@@ -21,6 +21,10 @@ from hypersim.game.systems.ai_system import AISystem
 from hypersim.game.rendering.base_renderer import DimensionRenderer
 from hypersim.game.rendering.line_renderer import LineRenderer
 from hypersim.game.rendering.plane_renderer import PlaneRenderer
+from hypersim.game.rendering.volume_renderer import VolumeRenderer
+from hypersim.game.rendering.hyper_renderer import HyperRenderer
+from hypersim.game.controllers.volume_controller import VolumeController
+from hypersim.game.controllers.hyper_controller import HyperController
 
 if TYPE_CHECKING:
     from hypersim.game.session import GameSession
@@ -69,7 +73,20 @@ class GameLoop:
         self._renderers: Dict[str, DimensionRenderer] = {
             "1d": LineRenderer(self.screen),
             "2d": PlaneRenderer(self.screen),
+            "3d": VolumeRenderer(self.screen),
+            "4d": HyperRenderer(self.screen),
         }
+        
+        # Register 3D/4D controllers
+        self._volume_controller = VolumeController()
+        self._hyper_controller = HyperController()
+        self.input_system.register_controller("volume", self._volume_controller)
+        self.input_system.register_controller("3d", self._volume_controller)
+        self.input_system.register_controller("hyper", self._hyper_controller)
+        self.input_system.register_controller("4d", self._hyper_controller)
+        
+        # Mouse capture state for 3D/4D
+        self._mouse_captured = False
         
         # Game state
         self.running = False
@@ -169,20 +186,44 @@ class GameLoop:
             self._spawn_1d_level()
         elif dimension_id == "2d":
             self._spawn_2d_level()
+        elif dimension_id == "3d":
+            self._spawn_3d_level()
+        elif dimension_id == "4d":
+            self._spawn_4d_level()
         else:
             # Default: just spawn player
             self._spawn_player(dimension_id, np.zeros(4))
+        
+        # Handle mouse capture for 3D/4D
+        if dimension_id in ("3d", "4d"):
+            self._set_mouse_capture(True)
+        else:
+            self._set_mouse_capture(False)
     
     def _spawn_player(self, dimension_id: str, position: np.ndarray) -> Entity:
         """Spawn the player entity."""
-        controller_type = "line" if dimension_id == "1d" else "plane"
+        controller_map = {
+            "1d": "line",
+            "2d": "plane",
+            "3d": "volume",
+            "4d": "hyper",
+        }
+        controller_type = controller_map.get(dimension_id, "plane")
+        
+        collider_map = {
+            "1d": ColliderShape.SEGMENT,
+            "2d": ColliderShape.CIRCLE,
+            "3d": ColliderShape.SPHERE,
+            "4d": ColliderShape.SPHERE,
+        }
+        collider_shape = collider_map.get(dimension_id, ColliderShape.CIRCLE)
         
         player = Entity(id="player")
         player.add(Transform(position=position.copy()))
         player.add(Velocity())
         player.add(Renderable(color=(80, 200, 255), glow=1.0))
         player.add(Collider(
-            shape=ColliderShape.SEGMENT if dimension_id == "1d" else ColliderShape.CIRCLE,
+            shape=collider_shape,
             size=np.array([0.5]),
         ))
         player.add(Health(current=100, max=100))
@@ -286,7 +327,7 @@ class GameLoop:
             pickup.tag("pickup")
             self.world.spawn(pickup)
         
-        # Portal to 3D (placeholder)
+        # Portal to 3D
         portal = Entity(id="portal_3d")
         portal.add(Transform(position=np.array([30.0, 20.0, 0.0, 0.0])))
         portal.add(Renderable(color=(150, 50, 255)))
@@ -295,6 +336,141 @@ class GameLoop:
         portal.add(DimensionAnchor(dimension_id="2d"))
         portal.tag("portal")
         self.world.spawn(portal)
+    
+    def _spawn_3d_level(self) -> None:
+        """Spawn a 3D volume level."""
+        # Set world bounds
+        self.physics_system.set_bounds("3d", 0, -50.0, 50.0)
+        self.physics_system.set_bounds("3d", 1, -5.0, 50.0)  # Y is up
+        self.physics_system.set_bounds("3d", 2, -50.0, 50.0)
+        
+        # Spawn player
+        self._spawn_player("3d", np.array([0.0, 1.0, 0.0, 0.0]))
+        
+        # Spawn 3D enemies
+        enemy_configs = [
+            ((10.0, 1.0, 10.0), "patrol", [np.array([10.0, 1.0, 10.0]), np.array([10.0, 1.0, -10.0])]),
+            ((-10.0, 1.0, -5.0), "patrol", [np.array([-10.0, 1.0, -5.0]), np.array([-10.0, 1.0, 15.0])]),
+            ((0.0, 1.0, 20.0), "chase", []),
+            ((15.0, 1.0, -15.0), "chase", []),
+        ]
+        
+        for i, (pos, behavior, patrol) in enumerate(enemy_configs):
+            enemy = Entity(id=f"enemy_{i}")
+            enemy.add(Transform(position=np.array([pos[0], pos[1], pos[2], 0.0])))
+            enemy.add(Velocity())
+            enemy.add(Renderable(color=(200, 50, 50)))
+            enemy.add(Collider(shape=ColliderShape.SPHERE, size=np.array([0.8])))
+            enemy.add(Health(current=75, max=75))
+            enemy.add(AIBrain(
+                behavior=behavior,
+                patrol_points=patrol,
+                detect_range=15.0,
+                attack_range=2.0,
+                state={"speed": 4.0}
+            ))
+            enemy.add(DimensionAnchor(dimension_id="3d"))
+            enemy.tag("enemy")
+            self.world.spawn(enemy)
+        
+        # Spawn pickups in 3D space
+        pickup_positions = [
+            (5.0, 1.0, 5.0), (-5.0, 1.0, -5.0), 
+            (15.0, 1.0, 10.0), (-15.0, 1.0, -10.0),
+            (0.0, 3.0, 0.0), (20.0, 1.0, 0.0),
+        ]
+        for i, pos in enumerate(pickup_positions):
+            pickup = Entity(id=f"pickup_{i}")
+            pickup.add(Transform(position=np.array([pos[0], pos[1], pos[2], 0.0])))
+            pickup.add(Renderable(color=(255, 220, 50)))
+            pickup.add(Collider(shape=ColliderShape.SPHERE, size=np.array([0.5]), is_trigger=True))
+            pickup.add(Pickup(item_type="energy", value=1))
+            pickup.add(DimensionAnchor(dimension_id="3d"))
+            pickup.tag("pickup")
+            self.world.spawn(pickup)
+        
+        # Portal to 4D
+        portal = Entity(id="portal_4d")
+        portal.add(Transform(position=np.array([40.0, 1.0, 40.0, 0.0])))
+        portal.add(Renderable(color=(180, 100, 255)))
+        portal.add(Collider(shape=ColliderShape.SPHERE, size=np.array([1.5]), is_trigger=True))
+        portal.add(Portal(target_dimension="4d", active=True))
+        portal.add(DimensionAnchor(dimension_id="3d"))
+        portal.tag("portal")
+        self.world.spawn(portal)
+    
+    def _spawn_4d_level(self) -> None:
+        """Spawn a 4D hyperspace level."""
+        # Set world bounds
+        self.physics_system.set_bounds("4d", 0, -50.0, 50.0)
+        self.physics_system.set_bounds("4d", 1, -5.0, 50.0)
+        self.physics_system.set_bounds("4d", 2, -50.0, 50.0)
+        # W bounds handled implicitly
+        
+        # Spawn player
+        self._spawn_player("4d", np.array([0.0, 1.0, 0.0, 0.0]))
+        
+        # Spawn 4D enemies (positioned in hyperspace)
+        enemy_configs = [
+            ((10.0, 1.0, 10.0, 0.0), "patrol"),
+            ((-10.0, 1.0, -5.0, 0.5), "chase"),
+            ((0.0, 1.0, 20.0, -0.5), "chase"),
+            ((15.0, 1.0, -15.0, 1.0), "patrol"),
+            ((5.0, 1.0, 5.0, -1.0), "chase"),  # In different W slice
+        ]
+        
+        for i, (pos, behavior) in enumerate(enemy_configs):
+            enemy = Entity(id=f"enemy_{i}")
+            enemy.add(Transform(position=np.array([pos[0], pos[1], pos[2], pos[3]])))
+            enemy.add(Velocity())
+            enemy.add(Renderable(color=(200, 50, 50)))
+            enemy.add(Collider(shape=ColliderShape.SPHERE, size=np.array([0.8])))
+            enemy.add(Health(current=100, max=100))
+            enemy.add(AIBrain(
+                behavior=behavior,
+                detect_range=12.0,
+                attack_range=2.0,
+                state={"speed": 3.5}
+            ))
+            enemy.add(DimensionAnchor(dimension_id="4d"))
+            enemy.tag("enemy")
+            self.world.spawn(enemy)
+        
+        # Spawn pickups across W slices
+        pickup_positions = [
+            (5.0, 1.0, 5.0, 0.0), (-5.0, 1.0, -5.0, 0.0),
+            (15.0, 1.0, 10.0, 0.5), (-15.0, 1.0, -10.0, -0.5),
+            (0.0, 2.0, 0.0, 1.0), (20.0, 1.0, 0.0, -1.0),
+        ]
+        for i, pos in enumerate(pickup_positions):
+            pickup = Entity(id=f"pickup_{i}")
+            pickup.add(Transform(position=np.array([pos[0], pos[1], pos[2], pos[3]])))
+            pickup.add(Renderable(color=(255, 220, 50)))
+            pickup.add(Collider(shape=ColliderShape.SPHERE, size=np.array([0.5]), is_trigger=True))
+            pickup.add(Pickup(item_type="hypercrystal", value=2))
+            pickup.add(DimensionAnchor(dimension_id="4d"))
+            pickup.tag("pickup")
+            self.world.spawn(pickup)
+        
+        # Victory portal (back to start or end game)
+        portal = Entity(id="portal_victory")
+        portal.add(Transform(position=np.array([0.0, 1.0, 50.0, 0.0])))
+        portal.add(Renderable(color=(255, 200, 100)))
+        portal.add(Collider(shape=ColliderShape.SPHERE, size=np.array([2.0]), is_trigger=True))
+        portal.add(Portal(target_dimension="1d", active=True))  # Loop back
+        portal.add(DimensionAnchor(dimension_id="4d"))
+        portal.tag("portal", "victory")
+        self.world.spawn(portal)
+    
+    def _set_mouse_capture(self, capture: bool) -> None:
+        """Enable or disable mouse capture for FPS-style control."""
+        self._mouse_captured = capture
+        pygame.mouse.set_visible(not capture)
+        pygame.event.set_grab(capture)
+        
+        # Update controllers
+        self._volume_controller.mouse_captured = capture
+        self._hyper_controller.mouse_captured = capture
     
     def run(self) -> None:
         """Run the main game loop."""
@@ -333,15 +509,34 @@ class GameLoop:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    self.running = False
+                    if self._mouse_captured:
+                        # Release mouse first
+                        self._set_mouse_capture(False)
+                    else:
+                        self.running = False
                 elif event.key == pygame.K_p:
                     self.paused = not self.paused
                 elif event.key == pygame.K_r:
                     # Reload level
                     self._reload_dimension()
+                elif event.key == pygame.K_TAB:
+                    # Toggle mouse capture in 3D/4D
+                    dim = self.session.active_dimension.id
+                    if dim in ("3d", "4d"):
+                        self._set_mouse_capture(not self._mouse_captured)
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                # Click to capture mouse in 3D/4D
+                dim = self.session.active_dimension.id
+                if dim in ("3d", "4d") and not self._mouse_captured:
+                    self._set_mouse_capture(True)
             
             # Forward to input handler
             self.input_handler.process_event(event)
+        
+        # Process mouse look for 3D/4D controllers
+        if self._mouse_captured and not self.paused:
+            self._volume_controller.process_mouse(self.input_handler)
+            self._hyper_controller.process_mouse(self.input_handler)
     
     def _render(self) -> None:
         """Render the current frame."""

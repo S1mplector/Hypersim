@@ -22,6 +22,10 @@ def save_progression(prog: ProgressionState, path: Path | str = DEFAULT_SAVE_PAT
         "active_node_id": prog.active_node_id,
         "mission_progress": prog.mission_progress,
         "unlocked_abilities": list(prog.unlocked_abilities),
+        # 4D Evolution
+        "evolution_form": prog.evolution_form,
+        "evolution_xp": prog.evolution_xp,
+        "evolution_forms_unlocked": list(prog.evolution_forms_unlocked),
     }
     path = Path(path)
     path.write_text(json.dumps(data, indent=2))
@@ -42,4 +46,8 @@ def load_progression(path: Path | str = DEFAULT_SAVE_PATH) -> Optional[Progressi
         active_node_id=data.get("active_node_id"),
         mission_progress=data.get("mission_progress", {}),
         unlocked_abilities=set(data.get("unlocked_abilities", [])),
+        # 4D Evolution
+        evolution_form=data.get("evolution_form", 0),
+        evolution_xp=data.get("evolution_xp", 0),
+        evolution_forms_unlocked=data.get("evolution_forms_unlocked", [0]),
     )
