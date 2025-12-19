@@ -103,7 +103,7 @@ class DimensionalBattleBox:
     def effective_height(self) -> float:
         """Get effective height (may be reduced in 1D)."""
         if self.current_dimension == CombatDimension.ONE_D:
-            return max(20, self.height * (1 - self.collapse_progress * 0.9))
+            return max(60, self.height * (1 - self.collapse_progress * 0.7))
         return self.height
     
     def set_dimension(self, dimension: CombatDimension, instant: bool = False) -> None:
@@ -134,9 +134,9 @@ class DimensionalBattleBox:
             self.collapse_progress = 1.0
             self.show_depth_layers = False
             self.show_edge_connections = False
-            # Collapse to a line in the center
+            # Collapse to a wider line corridor in the center (easier to see/play)
             center_y = self.base_y + self.base_height / 2
-            line_height = 30  # Thin line
+            line_height = 80  # Wider corridor for better visibility
             self.target_y = center_y - line_height / 2
             self.target_height = line_height
             self.target_x = self.base_x
@@ -248,49 +248,54 @@ class DimensionalBattleBox:
             self._draw_glow(screen)
     
     def _draw_1d_box(self, screen: pygame.Surface) -> None:
-        """Draw 1D collapsed line box."""
-        # Draw the line
+        """Draw 1D collapsed line corridor."""
         center_y = self.y + self.height / 2
-        
-        # Background darker line
-        pygame.draw.line(
-            screen, (30, 60, 80),
-            (self.x, center_y),
-            (self.x + self.width, center_y),
-            max(1, int(self.height))
-        )
-        
-        # Border lines (top and bottom of the line area)
         effective_h = self.effective_height
         top_y = center_y - effective_h / 2
         bottom_y = center_y + effective_h / 2
         
+        # Background fill (dark blue gradient feel)
+        bg_rect = pygame.Rect(int(self.x), int(top_y), int(self.width), int(effective_h))
+        pygame.draw.rect(screen, (15, 30, 50), bg_rect)
+        
+        # Center line (the "true" 1D line - glowing)
+        pygame.draw.line(screen, (60, 120, 180),
+                        (self.x, center_y), (self.x + self.width, center_y), 3)
+        pygame.draw.line(screen, (100, 180, 255),
+                        (self.x, center_y), (self.x + self.width, center_y), 1)
+        
+        # Border lines (top and bottom)
         pygame.draw.line(screen, self.border_color, 
-                        (self.x, top_y), (self.x + self.width, top_y), 2)
+                        (self.x, top_y), (self.x + self.width, top_y), 3)
         pygame.draw.line(screen, self.border_color,
-                        (self.x, bottom_y), (self.x + self.width, bottom_y), 2)
+                        (self.x, bottom_y), (self.x + self.width, bottom_y), 3)
         
-        # Endpoints
+        # Endpoints (vertical caps)
         pygame.draw.line(screen, self.border_color,
-                        (self.x, top_y), (self.x, bottom_y), 2)
+                        (self.x, top_y), (self.x, bottom_y), 3)
         pygame.draw.line(screen, self.border_color,
-                        (self.x + self.width, top_y), (self.x + self.width, bottom_y), 2)
+                        (self.x + self.width, top_y), (self.x + self.width, bottom_y), 3)
         
-        # Direction arrows to show 1D movement
+        # Direction arrows (larger, more visible)
         arrow_y = center_y
-        arrow_size = 8
+        arrow_size = 12
         # Left arrow
         pygame.draw.polygon(screen, (100, 200, 255), [
-            (self.x + 15, arrow_y),
-            (self.x + 15 + arrow_size, arrow_y - arrow_size),
-            (self.x + 15 + arrow_size, arrow_y + arrow_size),
+            (self.x + 20, arrow_y),
+            (self.x + 20 + arrow_size, arrow_y - arrow_size),
+            (self.x + 20 + arrow_size, arrow_y + arrow_size),
         ])
-        # Right arrow
+        # Right arrow  
         pygame.draw.polygon(screen, (100, 200, 255), [
-            (self.x + self.width - 15, arrow_y),
-            (self.x + self.width - 15 - arrow_size, arrow_y - arrow_size),
-            (self.x + self.width - 15 - arrow_size, arrow_y + arrow_size),
+            (self.x + self.width - 20, arrow_y),
+            (self.x + self.width - 20 - arrow_size, arrow_y - arrow_size),
+            (self.x + self.width - 20 - arrow_size, arrow_y + arrow_size),
         ])
+        
+        # "1D" label
+        font = pygame.font.Font(None, 24)
+        label = font.render("1D", True, (80, 160, 220))
+        screen.blit(label, (self.x + 5, top_y - 20))
     
     def _draw_2d_box(self, screen: pygame.Surface) -> None:
         """Draw standard 2D battle box."""

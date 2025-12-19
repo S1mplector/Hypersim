@@ -649,7 +649,29 @@ class DimensionalBattleSystem:
             if self.perception_controller.handle_input(event):
                 return True
         
-        # Movement input
+        # Menu navigation (during menu phases)
+        if event.type == pygame.KEYDOWN:
+            if self.state.phase == CombatPhase.PLAYER_MENU:
+                # Horizontal menu navigation
+                if event.key == pygame.K_LEFT:
+                    self.menu_index = (self.menu_index - 1) % 4
+                    return True
+                elif event.key == pygame.K_RIGHT:
+                    self.menu_index = (self.menu_index + 1) % 4
+                    return True
+            
+            elif self.state.phase in (CombatPhase.PLAYER_ACT, CombatPhase.PLAYER_ITEM, CombatPhase.PLAYER_MERCY):
+                # Submenu navigation (vertical)
+                if event.key == pygame.K_UP:
+                    max_items = self._get_submenu_count()
+                    self.submenu_index = (self.submenu_index - 1) % max_items if max_items > 0 else 0
+                    return True
+                elif event.key == pygame.K_DOWN:
+                    max_items = self._get_submenu_count()
+                    self.submenu_index = (self.submenu_index + 1) % max_items if max_items > 0 else 0
+                    return True
+        
+        # Movement input (during attack phase)
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_LEFT:
                 self.input_x = -1
@@ -671,6 +693,16 @@ class DimensionalBattleSystem:
                 self.input_y = 0
         
         return True
+    
+    def _get_submenu_count(self) -> int:
+        """Get the number of items in current submenu."""
+        if self.state.phase == CombatPhase.PLAYER_ACT:
+            return len(self.enemy.act_options) if self.enemy else 0
+        elif self.state.phase == CombatPhase.PLAYER_ITEM:
+            return len(self.state.inventory) if self.state else 0
+        elif self.state.phase == CombatPhase.PLAYER_MERCY:
+            return 2  # Spare and Flee
+        return 0
     
     def _handle_confirm(self) -> bool:
         """Handle confirm button."""
