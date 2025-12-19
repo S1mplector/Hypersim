@@ -8,6 +8,7 @@ from .codex_viewer import CodexViewer
 from .splash_screen import SplashScreen, SplashSequence, create_tessera_splash_sequence
 from .fancy_menu import FancyMainMenu, CosmicBackground, Shape4DRenderer, run_tessera_menu
 from .save_load_menu import SaveLoadMenu, SaveLoadMode
+from .pause_menu import PauseMenu
 
 __all__ = [
     "TextBox",
@@ -30,4 +31,6 @@ __all__ = [
     # Save/Load
     "SaveLoadMenu",
     "SaveLoadMode",
+    # Pause
+    "PauseMenu",
 ]
