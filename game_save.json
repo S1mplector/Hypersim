@@ -1,9 +1,25 @@
 {
-  "current_dimension": "1d",
+  "current_dimension": "3d",
   "unlocked_dimensions": [
-    "1d"
+    "1d",
+    "2d",
+    "3d"
   ],
   "completed_nodes": [],
   "xp": 0,
-  "profile_name": "default"
+  "profile_name": "default",
+  "active_node_id": null,
+  "mission_progress": {},
+  "unlocked_abilities": [
+    "slice_plane",
+    "fold_line",
+    "sketch_path",
+    "ping_neighbors",
+    "carry_line"
+  ],
+  "evolution_form": 0,
+  "evolution_xp": 0,
+  "evolution_forms_unlocked": [
+    0
+  ]
 }
