@@ -72,6 +72,30 @@ from .integration import (
     EncounterTable, create_combat_integration
 )
 
+# New Dimensional Combat System
+from .dimensional_combat import (
+    CombatDimension, PerceptionState,
+    DimensionalMovementRules, PerceptionAbilities,
+    DepthLayer, DEPTH_LAYERS,
+    TemporalBulletState, DimensionalBullet,
+    DimensionalCombatRules, DimensionalPatternGenerator,
+    get_dimension_from_enemy, get_recommended_perception
+)
+from .dimensional_battlebox import (
+    DimensionalBattleBox, BoxTransformState,
+    create_dimensional_battlebox
+)
+from .perception_system import (
+    PerceptionShiftResult, PerceptionMeter,
+    TranscendenceMeter, PerceptionHUD,
+    PerceptionController, DimensionalResonance,
+    ResonanceMeter, RESONANCE_ACTIONS
+)
+from .dimensional_battle_system import (
+    DimensionalSoul, DimensionalBattleSystem,
+    create_dimensional_battle_system
+)
+
 __all__ = [
     # Core
     "CombatState",
@@ -155,6 +179,33 @@ __all__ = [
     "EncounterConfig",
     "EncounterTable",
     "create_combat_integration",
+    # New Dimensional Combat System
+    "CombatDimension",
+    "PerceptionState",
+    "DimensionalMovementRules",
+    "PerceptionAbilities",
+    "DepthLayer",
+    "DEPTH_LAYERS",
+    "TemporalBulletState",
+    "DimensionalBullet",
+    "DimensionalCombatRules",
+    "DimensionalPatternGenerator",
+    "get_dimension_from_enemy",
+    "get_recommended_perception",
+    "DimensionalBattleBox",
+    "BoxTransformState",
+    "create_dimensional_battlebox",
+    "PerceptionShiftResult",
+    "PerceptionMeter",
+    "TranscendenceMeter",
+    "PerceptionHUD",
+    "PerceptionController",
+    "DimensionalResonance",
+    "ResonanceMeter",
+    "RESONANCE_ACTIONS",
+    "DimensionalSoul",
+    "DimensionalBattleSystem",
+    "create_dimensional_battle_system",
 ]
 
 
@@ -162,3 +213,49 @@ def run_combat_demo():
     """Run the standalone combat demo."""
     from .demo import run_demo
     run_demo()
+
+
+def run_dimensional_combat_demo():
+    """Run the new dimensional combat demo."""
+    import pygame
+    from .dimensional_battle_system import create_dimensional_battle_system
+    from .enemies import get_enemy
+    
+    pygame.init()
+    screen = pygame.display.set_mode((640, 480))
+    pygame.display.set_caption("Dimensional Combat Demo")
+    clock = pygame.time.Clock()
+    
+    # Create battle system
+    battle = create_dimensional_battle_system(640, 480)
+    
+    # Start with a 4D enemy to showcase all features
+    battle.start_battle("tesseract_citizen")
+    
+    running = True
+    while running:
+        dt = clock.tick(60) / 1000.0
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_LEFT or event.key == pygame.K_RIGHT:
+                    direction = -1 if event.key == pygame.K_LEFT else 1
+                    battle.move_menu(direction)
+            
+            battle.handle_input(event)
+        
+        battle.update(dt)
+        
+        screen.fill((0, 0, 0))
+        battle.draw(screen)
+        pygame.display.flip()
+        
+        # End battle check
+        if battle.state and battle.state.result != CombatResult.ONGOING:
+            if battle.state.phase in (CombatPhase.VICTORY, CombatPhase.SPARE, 
+                                      CombatPhase.DEFEAT, CombatPhase.FLEE):
+                pass  # Let ending animation play
+    
+    pygame.quit()
