@@ -1022,12 +1022,23 @@ def run_tessera_menu() -> Optional[str]:
     
     running = True
     in_splash = True
+    in_intro = False
+    intro_sequence = None
     selected_mode = None
     
     def on_start(mode: str):
-        nonlocal selected_mode, running
-        selected_mode = mode
-        running = False
+        nonlocal selected_mode, running, in_intro, intro_sequence
+        if mode == "new_game":
+            # Start the dramatic intro sequence
+            menu.stop_music()
+            from .intro_sequence import IntroSequence
+            intro_sequence = IntroSequence(screen)
+            intro_sequence.start()
+            in_intro = True
+            selected_mode = mode  # Will be returned after intro
+        else:
+            selected_mode = mode
+            running = False
     
     def on_quit():
         nonlocal running
@@ -1042,12 +1053,19 @@ def run_tessera_menu() -> Optional[str]:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif in_intro and intro_sequence:
+                intro_sequence.handle_event(event)
             elif in_splash:
                 splash.handle_event(event)
             else:
                 menu.handle_event(event)
         
-        if in_splash:
+        if in_intro and intro_sequence:
+            intro_sequence.update(dt)
+            intro_sequence.draw()
+            if intro_sequence.is_complete:
+                running = False
+        elif in_splash:
             if splash.update(dt):
                 in_splash = False
                 menu.start_music()
