@@ -42,6 +42,9 @@ from hypersim.game.combat import (
     get_starting_realm, EncounterConfig, EncounterType
 )
 
+# Story/Narrative system
+from hypersim.game.story.narrative import StoryManager, StoryRoute, StoryChapter, ENDINGS
+
 if TYPE_CHECKING:
     from hypersim.game.session import GameSession
 
@@ -131,6 +134,9 @@ class GameLoop:
         self.campaign = Campaign()
         self.npc_manager = NPCManager()
         self.codex = Codex()
+        
+        # === NARRATIVE SYSTEM ===
+        self.story = StoryManager()
         
         # Track dimension intro dialogues shown
         self._dimension_intros_shown: set = set()
@@ -672,20 +678,23 @@ class GameLoop:
             self.audio.play("encounter")
             self.overlays.notify("⚔️ ENCOUNTER!", duration=1.5, color=(255, 100, 100))
     
-    def _on_combat_end(self, result: CombatResult, xp: int, gold: int) -> None:
+    def _on_combat_end(self, result: CombatResult, xp: int, gold: int, enemy_id: str = "") -> None:
         """Handle combat ending."""
         # Update session
         self.session.progression.xp += xp
         self.session.progression.gold = getattr(self.session.progression, 'gold', 0) + gold
         
-        # Show results
+        # Track in story system for route determination
         if result == CombatResult.VICTORY:
+            self.story.record_kill(enemy_id)
             self.overlays.notify(f"Victory! +{xp} XP, +{gold}G", color=(255, 255, 100))
             self.audio.play("victory")
         elif result == CombatResult.SPARE:
+            self.story.record_spare(enemy_id)
             self.overlays.notify(f"Spared! +{gold}G", color=(255, 255, 100))
             self.audio.play("spare")
         elif result == CombatResult.FLEE:
+            self.story.record_flee()
             self.overlays.notify("Escaped!", color=(200, 200, 200))
         elif result == CombatResult.DEFEAT:
             self.overlays.notify("Defeated...", color=(255, 100, 100))
@@ -693,10 +702,26 @@ class GameLoop:
             if self.combat:
                 self.combat.player_stats.hp = self.combat.player_stats.max_hp // 2
         
+        # Check current route and notify player of major shifts
+        route = self.story.get_current_route()
+        self._check_route_notification(route)
+        
         # Re-capture mouse if in 3D/4D
         dim_id = self.session.active_dimension.id
         if dim_id in ("3d", "4d"):
             self._set_mouse_capture(True)
+    
+    def _check_route_notification(self, route: StoryRoute) -> None:
+        """Notify player if they've shifted to a specific route."""
+        state = self.story.route_state
+        
+        # Ascension hints
+        if route == StoryRoute.ASCENSION and state.enemies_spared == 5:
+            self.overlays.notify("♥ Path of Mercy...", duration=3.0, color=(255, 200, 255))
+        
+        # Conquest warnings
+        if route == StoryRoute.CONQUEST and state.enemies_killed == 5:
+            self.overlays.notify("⚔ Path of Conquest...", duration=3.0, color=(255, 100, 100))
     
     def _on_boss_defeated(self, boss_id: str) -> None:
         """Handle boss being defeated."""

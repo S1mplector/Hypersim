@@ -1,4 +1,12 @@
-"""Textbox and dialogue system for campaign storytelling."""
+"""Textbox and dialogue system for campaign storytelling.
+
+Features:
+- Typewriter text effect with adjustable speed
+- Undertale-style voice beeps (unique per character)
+- Multiple visual styles
+- Choice selection
+- Portrait support
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,6 +14,15 @@ from enum import Enum
 from typing import Callable, Dict, List, Optional, Tuple
 
 import pygame
+
+# Voice synthesis for typewriter beeps
+try:
+    from hypersim.game.audio.voice_synth import (
+        VoiceSynthesizer, VoiceProfile, VOICE_PRESETS, get_typewriter
+    )
+    VOICE_AVAILABLE = True
+except ImportError:
+    VOICE_AVAILABLE = False
 
 
 class TextBoxStyle(Enum):
@@ -118,6 +135,16 @@ class TextBox:
         self.fade_alpha = 0.0
         self.fade_speed = 5.0
         
+        # Voice synthesis
+        self._voice_synth: Optional[VoiceSynthesizer] = None
+        self._current_voice: Optional[VoiceProfile] = None
+        self._voice_enabled = True
+        self._voice_volume = 0.5
+        self._last_beep_char = -1  # Track last character that beeped
+        
+        if VOICE_AVAILABLE:
+            self._voice_synth = VoiceSynthesizer()
+        
         # Callbacks
         self._on_complete: Optional[Callable] = None
         self._on_choice: Optional[Callable[[str], None]] = None
@@ -139,11 +166,44 @@ class TextBox:
         self.selected_choice = 0
         self._on_complete = on_complete
         self._on_choice = on_choice
+        self._last_beep_char = -1
+        
+        # Set up voice for this line
+        if VOICE_AVAILABLE and self._voice_synth:
+            voice_id = line.voice_id or "default"
+            self._current_voice = VOICE_PRESETS.get(voice_id, VOICE_PRESETS.get("default"))
     
     def hide(self) -> None:
         """Hide the textbox."""
         self.active = False
         self.current_line = None
+    
+    def _play_voice_beep(self, char: str, char_index: int) -> None:
+        """Play a voice beep for a character."""
+        if not self._voice_synth or not self._current_voice:
+            return
+        
+        # Skip spaces and some punctuation
+        if char in ' \n\t':
+            return
+        if self._current_voice.skip_punctuation and char in '.,!?;:\'"()-':
+            return
+        
+        # Generate and play beep
+        try:
+            beep = self._voice_synth.get_cached_beep(self._current_voice, char_index)
+            beep.set_volume(self._current_voice.volume * self._voice_volume)
+            beep.play()
+        except Exception:
+            pass  # Silently fail if audio not available
+    
+    def set_voice_enabled(self, enabled: bool) -> None:
+        """Enable or disable voice beeps."""
+        self._voice_enabled = enabled
+    
+    def set_voice_volume(self, volume: float) -> None:
+        """Set voice volume (0.0 to 1.0)."""
+        self._voice_volume = max(0.0, min(1.0, volume))
     
     def skip_typing(self) -> None:
         """Skip to fully displayed text."""
@@ -193,12 +253,20 @@ class TextBox:
             
             if chars_to_add > 0:
                 self.char_timer = 0
+                old_index = self.char_index
                 new_index = min(
                     self.char_index + chars_to_add,
                     len(self.current_line.text)
                 )
                 self.displayed_text = self.current_line.text[:new_index]
                 self.char_index = new_index
+                
+                # Play voice beeps for new characters
+                if self._voice_enabled and self._voice_synth and self._current_voice:
+                    for i in range(old_index, new_index):
+                        if i > self._last_beep_char:
+                            self._play_voice_beep(self.current_line.text[i], i)
+                            self._last_beep_char = i
                 
                 if self.char_index >= len(self.current_line.text):
                     self.complete = True

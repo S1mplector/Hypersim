@@ -307,5 +307,98 @@ def _create_advanced_enemies() -> Dict[str, CombatEnemy]:
     }
 
 
+def _create_boss_enemies() -> Dict[str, CombatEnemy]:
+    """Boss enemies for 3D."""
+    return {
+        "hyperborder_sentinel": CombatEnemy(
+            id="hyperborder_sentinel",
+            name="Hyperborder Sentinel",
+            stats=CombatStats(hp=80, max_hp=80, attack=16, defense=12),
+            personality=EnemyPersonality.GEOMETRIC,
+            dimension="3d",
+            color=(200, 100, 255),
+            is_boss=True,
+            encounter_text="* At the edge of 3D, something guards the border!\n* Hyperborder Sentinel manifests from impossible angles!",
+            check_text="* HYPERBORDER SENTINEL - ATK 16 DEF 12\n* Guards the passage to 4D.\n* Has glimpsed the fourth dimension.\n* Warns travelers of what lies beyond.",
+            idle_dialogues=[
+                "* \"Beyond me lies... MORE. Are you ready for more?\"",
+                "* The Sentinel's form flickers with extra angles.",
+                "* \"I have seen what 4D does to the unprepared.\"",
+                "* \"Width, height, depth... and then WHAT?\"",
+            ],
+            hurt_dialogues=[
+                "* \"You strike at dimensions you cannot see!\"",
+                "* Part of the Sentinel phases into hyperspace.",
+            ],
+            low_hp_dialogues=[
+                "* \"Perhaps... you ARE ready for what lies beyond.\"",
+                "* The border between dimensions thins.",
+            ],
+            spare_dialogue="* Hyperborder Sentinel steps aside.\n* \"Go. May you survive what I could not become.\"\n* The way to 4D opens!",
+            kill_dialogue="* The Sentinel collapses.\n* The border tears. Reality screams briefly.",
+            act_options=[
+                check_act(),
+                ACTOption(
+                    id="ask_about_4d",
+                    name="Ask About 4D",
+                    description="Ask what lies beyond.",
+                    mood_change=30,
+                    success_dialogue="* \"Imagine seeing inside closed boxes.\"\n* \"Imagine your secrets laid bare.\"\n* \"That is 4D.\"",
+                ),
+                ACTOption(
+                    id="prove_readiness",
+                    name="Prove Ready",
+                    description="Demonstrate you understand the cost.",
+                    mood_change=45,
+                    requires_turn=2,
+                    success_dialogue="* You speak of dissolution and growth.\n* \"You understand the price. Good.\"",
+                ),
+                ACTOption(
+                    id="empathize",
+                    name="Empathize",
+                    description="Acknowledge its lonely vigil.",
+                    mood_change=40,
+                    success_dialogue="* \"You see my burden. Few do.\"\n* \"Guarding a door you dare not enter...\"",
+                ),
+            ],
+            attack_patterns=[
+                EnemyAttackPattern(
+                    id="dimensional_tear",
+                    name="Dimensional Tear",
+                    duration=4.5,
+                    pattern_type="tesseract",
+                    bullet_count=20,
+                    bullet_speed=180,
+                    attack_dialogue="* Reality TEARS at the border!",
+                ),
+                EnemyAttackPattern(
+                    id="hyperspace_glimpse",
+                    name="Hyperspace Glimpse",
+                    duration=5.0,
+                    pattern_type="pulse",
+                    bullet_count=24,
+                    bullet_speed=160,
+                    soul_mode=SoulMode.BLUE,
+                    attack_dialogue="* \"See what awaits!\"",
+                ),
+            ],
+            xp_reward=60,
+            gold_reward=40,
+            spare_gold_reward=70,
+            spare_threshold=120,
+            can_flee=False,
+        ),
+    }
+
+
+def create_3d_enemies() -> Dict[str, CombatEnemy]:
+    """Create all 3D enemies."""
+    return {
+        **_create_basic_enemies(),
+        **_create_advanced_enemies(),
+        **_create_boss_enemies(),
+    }
+
+
 # Pre-built enemy dict for quick access
 ENEMIES_3D = create_3d_enemies()
