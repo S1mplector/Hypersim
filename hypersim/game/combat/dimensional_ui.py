@@ -264,23 +264,36 @@ class DimensionalCombatUI:
         self._draw_controls_hint(screen, phase, dimension)
     
     def _draw_dimension_indicator(self, screen: pygame.Surface, dimension: CombatDimension) -> None:
-        """Draw current dimension indicator."""
+        """Draw current dimension indicator in top-left panel."""
         dim_names = {
-            CombatDimension.ONE_D: "1D - LINEAR",
-            CombatDimension.TWO_D: "2D - PLANAR", 
-            CombatDimension.THREE_D: "3D - SPATIAL",
-            CombatDimension.FOUR_D: "4D - TEMPORAL",
+            CombatDimension.ONE_D: "1D",
+            CombatDimension.TWO_D: "2D", 
+            CombatDimension.THREE_D: "3D",
+            CombatDimension.FOUR_D: "4D",
+        }
+        dim_subtitles = {
+            CombatDimension.ONE_D: "LINEAR REALM",
+            CombatDimension.TWO_D: "PLANAR REALM", 
+            CombatDimension.THREE_D: "SPATIAL REALM",
+            CombatDimension.FOUR_D: "TEMPORAL REALM",
         }
         
         color = self.dimension_colors.get(dimension, (255, 255, 255))
-        text = dim_names.get(dimension, "UNKNOWN")
         
-        # Background box
-        pygame.draw.rect(screen, (20, 20, 30), (10, 10, 130, 25))
-        pygame.draw.rect(screen, color, (10, 10, 130, 25), 1)
+        # Panel background with rounded feel
+        panel_x, panel_y = 10, 10
+        panel_w, panel_h = 100, 50
         
-        label = self.font_small.render(text, True, color)
-        screen.blit(label, (15, 15))
+        pygame.draw.rect(screen, (15, 20, 30), (panel_x, panel_y, panel_w, panel_h))
+        pygame.draw.rect(screen, color, (panel_x, panel_y, panel_w, panel_h), 2)
+        
+        # Dimension number (large)
+        dim_text = self.font_large.render(dim_names.get(dimension, "?D"), True, color)
+        screen.blit(dim_text, (panel_x + 10, panel_y + 5))
+        
+        # Subtitle (small)
+        subtitle = self.font_small.render(dim_subtitles.get(dimension, ""), True, (120, 140, 160))
+        screen.blit(subtitle, (panel_x + 8, panel_y + 32))
     
     def _draw_enemy_area(self, screen: pygame.Surface, enemy_name: str, 
                          enemy_stats: Optional[CombatStats]) -> None:
@@ -320,32 +333,68 @@ class DimensionalCombatUI:
         screen.blit(hp_surf, (255, self.screen_height - 82))
     
     def _draw_perception_hud(self, screen: pygame.Surface, rules: DimensionalCombatRules) -> None:
-        """Draw perception state and energy."""
-        x = self.screen_width - 180
-        y = 10
+        """Draw perception state and energy in a clear panel."""
+        # === PERCEPTION PANEL (top-right) ===
+        panel_x = self.screen_width - 220
+        panel_y = 10
+        panel_w = 210
+        panel_h = 95
         
-        # Perception label
+        # Panel background
+        pygame.draw.rect(screen, (15, 20, 30), (panel_x, panel_y, panel_w, panel_h))
+        pygame.draw.rect(screen, (60, 80, 100), (panel_x, panel_y, panel_w, panel_h), 2)
+        
+        # Panel title
+        title = self.font_small.render("◆ PERCEPTION", True, (100, 150, 200))
+        screen.blit(title, (panel_x + 8, panel_y + 5))
+        
+        # Horizontal divider
+        pygame.draw.line(screen, (50, 60, 80), 
+                        (panel_x + 5, panel_y + 22), (panel_x + panel_w - 5, panel_y + 22), 1)
+        
+        # Current perception state (large)
         state_name = rules.current_perception.value.upper()
         color = self.perception_colors.get(rules.current_perception, (255, 255, 255))
+        state_text = self.font_medium.render(state_name, True, color)
+        screen.blit(state_text, (panel_x + 10, panel_y + 26))
         
-        label = self.font_small.render(f"PERCEPTION [{state_name}]", True, color)
-        screen.blit(label, (x - 5, y))
+        # SHIFT energy bar
+        bar_x = panel_x + 10
+        bar_y = panel_y + 48
+        bar_w = panel_w - 20
+        bar_h = 10
         
-        # Energy bar
+        # Update bar position
+        self.perception_bar.x = bar_x
+        self.perception_bar.y = bar_y
+        self.perception_bar.width = bar_w
+        self.perception_bar.height = bar_h
+        
+        shift_label = self.font_small.render("SHIFT", True, (80, 120, 160))
+        screen.blit(shift_label, (bar_x, bar_y - 12))
         self.perception_bar.draw(screen)
         
-        # Transcendence
-        trans_label = self.font_small.render("TRANSCEND", True, (200, 150, 100))
-        screen.blit(trans_label, (x - 5, y + 20))
+        # TRANSCEND bar
+        trans_y = bar_y + 18
+        self.transcendence_bar.x = bar_x
+        self.transcendence_bar.y = trans_y
+        self.transcendence_bar.width = bar_w
+        self.transcendence_bar.height = bar_h
+        
+        trans_label = self.font_small.render("TRANS", True, (160, 120, 80))
+        screen.blit(trans_label, (bar_x, trans_y - 12))
         self.transcendence_bar.draw(screen)
         
         # Ready indicator
         if rules.can_transcend():
             ready = self.font_small.render("[T] READY!", True, (255, 220, 100))
-            screen.blit(ready, (x + 100, y + 32))
+            screen.blit(ready, (bar_x + bar_w - 60, trans_y - 12))
         
-        # Shift options
-        y_offset = 50
+        # === SHIFT BUTTONS (below panel) ===
+        btn_y = panel_y + panel_h + 5
+        btn_w = 48
+        btn_spacing = 52
+        
         perceptions = [
             ("1", PerceptionState.POINT, "0D"),
             ("2", PerceptionState.LINE, "1D"),
@@ -353,65 +402,85 @@ class DimensionalCombatUI:
             ("4", PerceptionState.VOLUME, "3D"),
         ]
         
-        for key, state, label in perceptions:
+        for i, (key, state, dim_label) in enumerate(perceptions):
             can_shift = rules.can_shift_perception(state)
             is_current = rules.current_perception == state
             
+            btn_x = panel_x + i * btn_spacing
+            
             if is_current:
-                bg_color = (60, 60, 40)
-                text_color = (255, 255, 100)
+                bg_color = (50, 60, 40)
+                border_color = (150, 200, 100)
+                text_color = (200, 255, 150)
             elif can_shift:
-                bg_color = (40, 40, 50)
-                text_color = (150, 150, 150)
+                bg_color = (35, 40, 50)
+                border_color = (70, 90, 110)
+                text_color = (140, 160, 180)
             else:
-                bg_color = (30, 30, 35)
-                text_color = (80, 80, 80)
+                bg_color = (25, 25, 30)
+                border_color = (40, 40, 50)
+                text_color = (60, 60, 70)
             
-            box_x = x + (int(key) - 1) * 38
-            pygame.draw.rect(screen, bg_color, (box_x, y + y_offset, 35, 18))
-            pygame.draw.rect(screen, text_color if is_current else (50, 50, 60),
-                           (box_x, y + y_offset, 35, 18), 1)
+            pygame.draw.rect(screen, bg_color, (btn_x, btn_y, btn_w, 22))
+            pygame.draw.rect(screen, border_color, (btn_x, btn_y, btn_w, 22), 1)
             
-            text = self.font_small.render(f"{key}:{label}", True, text_color)
-            screen.blit(text, (box_x + 2, y + y_offset + 2))
+            btn_text = self.font_small.render(f"[{key}]{dim_label}", True, text_color)
+            screen.blit(btn_text, (btn_x + 4, btn_y + 4))
     
     def _draw_resonance(self, screen: pygame.Surface, resonance: DimensionalResonance) -> None:
-        """Draw resonance meters."""
-        x = self.screen_width - 180
-        y = 90
+        """Draw resonance meters in a separate panel."""
+        # === RESONANCE PANEL (top-right, below perception) ===
+        panel_x = self.screen_width - 220
+        panel_y = 135
+        panel_w = 210
+        panel_h = 75
         
-        label = self.font_small.render("RESONANCE", True, (150, 150, 180))
-        screen.blit(label, (x, y))
+        # Panel background
+        pygame.draw.rect(screen, (15, 20, 30), (panel_x, panel_y, panel_w, panel_h))
+        pygame.draw.rect(screen, (80, 60, 100), (panel_x, panel_y, panel_w, panel_h), 2)
+        
+        # Panel title
+        title = self.font_small.render("◆ RESONANCE", True, (150, 100, 180))
+        screen.blit(title, (panel_x + 8, panel_y + 5))
+        
+        # Horizontal divider
+        pygame.draw.line(screen, (60, 50, 80), 
+                        (panel_x + 5, panel_y + 22), (panel_x + panel_w - 5, panel_y + 22), 1)
         
         dimensions = [
             ("0D", resonance.point_resonance, (100, 100, 255)),
             ("1D", resonance.line_resonance, (100, 200, 255)),
-            ("2D", resonance.plane_resonance, (255, 255, 255)),
+            ("2D", resonance.plane_resonance, (200, 200, 200)),
             ("3D", resonance.volume_resonance, (200, 100, 255)),
             ("4D", resonance.hyper_resonance, (255, 200, 100)),
         ]
         
-        bar_width = 28
+        bar_width = 35
+        bar_height = 30
+        bar_spacing = 38
+        bar_y = panel_y + 28
+        
         for i, (name, value, color) in enumerate(dimensions):
-            bar_x = x + i * (bar_width + 2)
-            bar_y = y + 15
-            bar_height = 40
+            bar_x = panel_x + 10 + i * bar_spacing
             
             # Background
-            pygame.draw.rect(screen, (30, 30, 40), (bar_x, bar_y, bar_width, bar_height))
+            pygame.draw.rect(screen, (25, 25, 35), (bar_x, bar_y, bar_width, bar_height))
             
-            # Fill (vertical)
+            # Fill (vertical, bottom-up)
             fill_height = int(bar_height * (value / resonance.max_resonance))
             if fill_height > 0:
+                # Gradient effect
+                fill_color = tuple(min(255, c + 30) for c in color)
                 pygame.draw.rect(screen, color,
                                (bar_x, bar_y + bar_height - fill_height, bar_width, fill_height))
             
             # Border
-            pygame.draw.rect(screen, (60, 60, 70), (bar_x, bar_y, bar_width, bar_height), 1)
+            border_color = color if value > 0 else (40, 40, 50)
+            pygame.draw.rect(screen, border_color, (bar_x, bar_y, bar_width, bar_height), 1)
             
-            # Label
-            text = self.font_small.render(name, True, color)
-            screen.blit(text, (bar_x + 2, bar_y + bar_height + 2))
+            # Label below bar
+            text = self.font_small.render(name, True, color if value > 0 else (80, 80, 90))
+            screen.blit(text, (bar_x + 6, bar_y + bar_height + 3))
     
     def _draw_dialogue_box(self, screen: pygame.Surface, dialogue: str, 
                            progress: float) -> None:
@@ -531,42 +600,71 @@ class DimensionalCombatUI:
         screen.blit(text, (self.screen_width // 2 - text.get_width() // 2, bar_y - 30))
     
     def _draw_combat_log(self, screen: pygame.Surface) -> None:
-        """Draw recent combat log entries."""
+        """Draw recent combat log entries in a subtle area."""
+        if not self.combat_log:
+            return
+            
+        # Position below dimension indicator
         x = 15
-        y = 40
+        y = 70
         
         for message, age in self.combat_log:
             alpha = max(0, 255 - int(age * 50))
-            color = (200, 200, 200)
+            color = (150, 150, 170)
             
             text_surf = self.font_small.render(f"• {message}", True, color)
-            text_surf.set_alpha(alpha)
             screen.blit(text_surf, (x, y))
-            y += 15
+            y += 14
     
     def _draw_controls_hint(self, screen: pygame.Surface, phase: CombatPhase,
                             dimension: CombatDimension) -> None:
-        """Draw context-sensitive control hints."""
+        """Draw context-sensitive control hints in a panel."""
         hints = []
         
         if phase == CombatPhase.ENEMY_ATTACK:
-            hints = ["[←→↑↓] Move", "[1-4] Shift", "[T] Transcend"]
+            hints = [
+                ("MOVE", "←→↑↓"),
+                ("SHIFT", "1-4"),
+                ("TRANS", "T"),
+            ]
             if dimension == CombatDimension.THREE_D:
-                hints.append("[Q/E] Depth")
+                hints.append(("DEPTH", "Q/E"))
             elif dimension == CombatDimension.FOUR_D:
-                hints.append("[Q/E] Time")
+                hints.append(("TIME", "Q/E"))
         elif phase == CombatPhase.PLAYER_MENU:
-            hints = ["[←→] Select", "[Z] Confirm"]
+            hints = [("SELECT", "←→"), ("CONFIRM", "Z")]
         elif phase in (CombatPhase.PLAYER_ACT, CombatPhase.PLAYER_ITEM, CombatPhase.PLAYER_MERCY):
-            hints = ["[↑↓] Select", "[Z] Confirm", "[X] Back"]
+            hints = [("SELECT", "↑↓"), ("CONFIRM", "Z"), ("BACK", "X")]
+        elif phase == CombatPhase.INTRO:
+            hints = [("CONTINUE", "Z")]
+        elif phase == CombatPhase.ENEMY_DIALOGUE:
+            hints = [("SKIP", "Z")]
         
         if not hints:
             return
         
-        x = self.screen_width - 150
-        y = self.screen_height - 60
+        # === CONTROLS PANEL (bottom-right) ===
+        panel_w = 130
+        panel_h = 18 + len(hints) * 16
+        panel_x = self.screen_width - panel_w - 10
+        panel_y = self.screen_height - panel_h - 10
         
-        for hint in hints:
-            text = self.font_small.render(hint, True, (100, 100, 120))
-            screen.blit(text, (x, y))
+        # Panel background
+        pygame.draw.rect(screen, (15, 20, 25), (panel_x, panel_y, panel_w, panel_h))
+        pygame.draw.rect(screen, (50, 60, 70), (panel_x, panel_y, panel_w, panel_h), 1)
+        
+        # Title
+        title = self.font_small.render("CONTROLS", True, (80, 100, 120))
+        screen.blit(title, (panel_x + 5, panel_y + 2))
+        
+        # Hints
+        y = panel_y + 18
+        for label, key in hints:
+            # Key in brackets
+            key_text = self.font_small.render(f"[{key}]", True, (120, 150, 180))
+            screen.blit(key_text, (panel_x + 5, y))
+            
+            # Label
+            label_text = self.font_small.render(label, True, (80, 90, 100))
+            screen.blit(label_text, (panel_x + 55, y))
             y += 14
