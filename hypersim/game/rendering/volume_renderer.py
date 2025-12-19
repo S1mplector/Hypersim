@@ -165,19 +165,17 @@ class VolumeRenderer(DimensionRenderer):
         # Draw UI
         self._draw_ui(world, player)
     
+    def set_camera_orientation(self, yaw: float, pitch: float) -> None:
+        """Set camera orientation from the input controller."""
+        self.camera_yaw = yaw
+        self.camera_pitch = pitch
+    
     def _update_camera_from_player(self, player: "Entity") -> None:
-        """Update camera position and orientation from player."""
+        """Update camera position from player (orientation set externally)."""
         transform = player.get(Transform)
         if transform:
             self.camera_pos = transform.position[:3].copy()
             self.camera_pos[1] += 1.5  # Eye height
-        
-        # Get controller for orientation
-        from hypersim.game.ecs.component import Controller
-        controller = player.get(Controller)
-        if controller and hasattr(controller, 'yaw'):
-            self.camera_yaw = controller.yaw
-            self.camera_pitch = controller.pitch
     
     def _draw_floor_grid(self) -> None:
         """Draw a floor grid for spatial reference."""

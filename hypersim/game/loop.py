@@ -672,6 +672,18 @@ class GameLoop:
         dim_id = self.session.active_dimension.id
         renderer = self._renderers.get(dim_id)
         
+        # Update camera orientation for 3D/4D renderers from controllers
+        if dim_id == "3d" and hasattr(renderer, 'set_camera_orientation'):
+            renderer.set_camera_orientation(
+                self._volume_controller.yaw,
+                self._volume_controller.pitch
+            )
+        elif dim_id == "4d" and hasattr(renderer, 'set_camera_orientation'):
+            renderer.set_camera_orientation(
+                self._hyper_controller.yaw,
+                self._hyper_controller.pitch
+            )
+        
         if renderer:
             renderer.render(self.world, self.session.active_dimension)
         else:

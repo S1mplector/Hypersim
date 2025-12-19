@@ -12,10 +12,10 @@
   "mission_progress": {},
   "unlocked_abilities": [
     "slice_plane",
-    "fold_line",
-    "sketch_path",
     "ping_neighbors",
-    "carry_line"
+    "fold_line",
+    "carry_line",
+    "sketch_path"
   ],
   "evolution_form": 0,
   "evolution_xp": 0,

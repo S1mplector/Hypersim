@@ -265,22 +265,19 @@ class HyperRenderer(VolumeRenderer):
                 pygame.draw.rect(self.screen, form_def.color, (bar_x, bar_y, fill_width, 6))
             pygame.draw.rect(self.screen, (80, 80, 100), (bar_x, bar_y, bar_width, 6), 1)
     
+    def set_camera_orientation(self, yaw: float, pitch: float) -> None:
+        """Set camera orientation from the input controller."""
+        self.camera_yaw = yaw
+        self.camera_pitch = pitch
+    
     def _update_camera_from_player_4d(self, player: "Entity") -> None:
-        """Update camera from 4D player position."""
+        """Update camera from 4D player position (orientation set externally)."""
         transform = player.get(Transform)
         if transform:
             self.camera_pos = transform.position[:3].copy()
             self.camera_pos[1] += 1.5
             if len(transform.position) > 3:
                 self.w_slice = transform.position[3]
-        
-        from hypersim.game.ecs.component import Controller
-        controller = player.get(Controller)
-        if controller:
-            if hasattr(controller, 'yaw'):
-                self.camera_yaw = controller.yaw
-            if hasattr(controller, 'pitch'):
-                self.camera_pitch = controller.pitch
     
     def _render_entity_4d(self, entity: "Entity") -> None:
         """Render an entity in 4D space."""

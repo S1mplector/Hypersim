@@ -12,6 +12,13 @@ from .campaign import Campaign, Chapter, StoryBeat
 from .npc import NPC, NPCState, NPCManager
 from .lore import LoreEntry, LoreCategory, Codex
 from .dialogue_tree import DialogueNode, DialogueTree, DialogueChoice
+from .cosmology import COSMIC_LORE, CosmicLoreEntry, CosmicEra, get_lore_for_dimension
+from .dimensional_evolution import (
+    DimensionalForm, DimensionTier, 
+    FORMS_1D, FORMS_2D, FORMS_3D, ALL_DIMENSIONAL_FORMS,
+    get_forms_for_dimension, get_starting_form, get_transcendent_form,
+    get_available_forms
+)
 
 __all__ = [
     # Campaign
@@ -30,4 +37,20 @@ __all__ = [
     "DialogueNode",
     "DialogueTree",
     "DialogueChoice",
+    # Cosmology
+    "COSMIC_LORE",
+    "CosmicLoreEntry",
+    "CosmicEra",
+    "get_lore_for_dimension",
+    # Dimensional Evolution
+    "DimensionalForm",
+    "DimensionTier",
+    "FORMS_1D",
+    "FORMS_2D",
+    "FORMS_3D",
+    "ALL_DIMENSIONAL_FORMS",
+    "get_forms_for_dimension",
+    "get_starting_form",
+    "get_transcendent_form",
+    "get_available_forms",
 ]
