@@ -117,6 +117,9 @@ from .story_encounters import (
     StoryEncounter, StoryEncounterType, StoryEncounterManager,
     ENCOUNTERS_1D, get_encounter_manager
 )
+from .combat_audio import (
+    CombatAudioManager, CombatSFX, get_combat_audio
+)
 
 __all__ = [
     # Core
@@ -260,6 +263,10 @@ __all__ = [
     "StoryEncounterManager",
     "ENCOUNTERS_1D",
     "get_encounter_manager",
+    # Combat Audio
+    "CombatAudioManager",
+    "CombatSFX",
+    "get_combat_audio",
 ]
 
 

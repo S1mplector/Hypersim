@@ -37,6 +37,8 @@ from .perception_system import (
 )
 from .combat_effects import CombatEffectsManager, get_effects_manager
 from .dimensional_enemy_ai import DimensionalEnemyAI, get_enemy_ai, PerceptionAttackType
+from .combat_audio import CombatAudioManager, get_combat_audio, CombatSFX
+from .dimensional_ui import DimensionalCombatUI
 
 
 @dataclass
@@ -202,9 +204,11 @@ class DimensionalBattleSystem:
         # Input controller
         self.perception_controller = PerceptionController(self.rules)
         
-        # HUD
-        self.hud = PerceptionHUD(screen_width, screen_height)
-        self.resonance_meter = ResonanceMeter(x=15, y=60)
+        # UI (single unified UI system)
+        self.ui = DimensionalCombatUI(screen_width, screen_height)
+        
+        # Fight bar state
+        self.fight_bar_position = 0.0
         
         # Bullets (using dimensional bullets)
         self.bullets: List[DimensionalBullet] = []
@@ -234,6 +238,9 @@ class DimensionalBattleSystem:
         
         # Effects manager
         self.effects = get_effects_manager()
+        
+        # Audio manager
+        self.audio = get_combat_audio()
         
         # Enemy AI
         self.enemy_ai: Optional[DimensionalEnemyAI] = None
@@ -297,6 +304,10 @@ class DimensionalBattleSystem:
         self.menu_index = 0
         self.submenu_index = 0
         self.in_submenu = False
+        
+        # Start battle music based on dimension
+        dim_key = enemy_dim if enemy_dim in ('1d', '2d', '3d', '4d') else 'default'
+        self.audio.on_battle_start(dim_key)
         
         return True
     
@@ -363,13 +374,14 @@ class DimensionalBattleSystem:
     def _update_fight(self, dt: float) -> None:
         """Update fight minigame."""
         if self.fight_bar_moving:
-            self.state.fight_bar_position += self.fight_bar_direction * self.state.fight_bar_speed * dt
+            speed = getattr(self.state, 'fight_bar_speed', 1.5)
+            self.fight_bar_position += self.fight_bar_direction * speed * dt
             
-            if self.state.fight_bar_position >= 1.0:
-                self.state.fight_bar_position = 1.0
+            if self.fight_bar_position >= 1.0:
+                self.fight_bar_position = 1.0
                 self.fight_bar_direction = -1
-            elif self.state.fight_bar_position <= 0.0:
-                self.state.fight_bar_position = 0.0
+            elif self.fight_bar_position <= 0.0:
+                self.fight_bar_position = 0.0
                 self.fight_bar_direction = 1
     
     def _update_dialogue(self, dt: float) -> None:
@@ -446,6 +458,9 @@ class DimensionalBattleSystem:
                     self.soul.make_invincible()
                     bullet.active = False
                     
+                    # Play damage audio
+                    self.audio.on_player_damage(actual_damage)
+                    
                     # Spawn damage effects
                     self.effects.spawn_damage_particles(self.soul.x, self.soul.y, actual_damage)
                     self.effects.spawn_damage_number(self.soul.x, self.soul.y, actual_damage)
@@ -470,6 +485,9 @@ class DimensionalBattleSystem:
             
             if hit_dist < dist <= graze_dist:
                 self.grazed_bullets.add(i)
+                
+                # Play graze audio
+                self.audio.on_graze()
                 
                 # Spawn graze effect
                 self.effects.spawn_graze_effect(bullet.x, bullet.y)
@@ -631,6 +649,18 @@ class DimensionalBattleSystem:
     
     def _end_battle(self) -> None:
         """End battle and trigger callback."""
+        # Play end battle audio
+        if self.state.result == CombatResult.VICTORY:
+            self.audio.on_battle_end("victory")
+        elif self.state.result == CombatResult.SPARE:
+            self.audio.on_battle_end("spare")
+        elif self.state.result == CombatResult.DEFEAT:
+            self.audio.on_battle_end("defeat")
+        elif self.state.result == CombatResult.FLEE:
+            self.audio.on_battle_end("flee")
+        else:
+            self.audio.stop_battle_music()
+        
         if self.on_battle_end:
             xp = self.enemy.xp_reward if self.state.result == CombatResult.VICTORY else 0
             gold = self.enemy.gold_reward
@@ -655,9 +685,11 @@ class DimensionalBattleSystem:
                 # Horizontal menu navigation
                 if event.key == pygame.K_LEFT:
                     self.menu_index = (self.menu_index - 1) % 4
+                    self.audio.on_menu_move()
                     return True
                 elif event.key == pygame.K_RIGHT:
                     self.menu_index = (self.menu_index + 1) % 4
+                    self.audio.on_menu_move()
                     return True
             
             elif self.state.phase in (CombatPhase.PLAYER_ACT, CombatPhase.PLAYER_ITEM, CombatPhase.PLAYER_MERCY):
@@ -665,10 +697,12 @@ class DimensionalBattleSystem:
                 if event.key == pygame.K_UP:
                     max_items = self._get_submenu_count()
                     self.submenu_index = (self.submenu_index - 1) % max_items if max_items > 0 else 0
+                    self.audio.on_menu_move()
                     return True
                 elif event.key == pygame.K_DOWN:
                     max_items = self._get_submenu_count()
                     self.submenu_index = (self.submenu_index + 1) % max_items if max_items > 0 else 0
+                    self.audio.on_menu_move()
                     return True
         
         # Movement input (during attack phase)
@@ -736,6 +770,7 @@ class DimensionalBattleSystem:
         if self.in_submenu:
             self.in_submenu = False
             self.state.phase = CombatPhase.PLAYER_MENU
+            self.audio.on_menu_back()
             return True
         return False
     
@@ -746,11 +781,12 @@ class DimensionalBattleSystem:
         if 0 <= self.menu_index < len(actions):
             action = actions[self.menu_index]
             self.state.current_action = action
+            self.audio.on_menu_select()
             
             if action == CombatAction.FIGHT:
                 self.state.phase = CombatPhase.PLAYER_FIGHT
                 self.fight_bar_moving = True
-                self.state.fight_bar_position = 0.0
+                self.fight_bar_position = 0.0
                 self.fight_bar_direction = 1
             elif action == CombatAction.ACT:
                 self.state.phase = CombatPhase.PLAYER_ACT
@@ -772,7 +808,7 @@ class DimensionalBattleSystem:
         """Confirm fight with resonance bonus."""
         self.fight_bar_moving = False
         
-        position = self.state.fight_bar_position
+        position = self.fight_bar_position
         accuracy = 1.0 - abs(position - 0.5) * 2
         
         # Apply resonance damage bonus
@@ -782,6 +818,10 @@ class DimensionalBattleSystem:
         
         actual_damage = self.enemy.stats.take_damage(damage)
         self.enemy.times_hurt += 1
+        
+        # Play attack audio
+        is_critical = accuracy > 0.9
+        self.audio.on_player_attack(actual_damage, is_critical)
         
         # Spawn enemy hit effect
         enemy_x = self.screen_width // 2
@@ -962,37 +1002,26 @@ class DimensionalBattleSystem:
         if shake_x != 0 or shake_y != 0:
             screen.blit(draw_target, (int(shake_x), int(shake_y)))
         
-        # Draw HUD (not affected by shake)
-        self.hud.draw(screen, self.rules, self.dimension)
-        self.resonance_meter.draw(screen, self.resonance)
-        
-        # Draw menu/dialogue
-        self._draw_ui(screen)
-    
-    def _draw_ui(self, screen: pygame.Surface) -> None:
-        """Draw menu and dialogue UI."""
-        font = pygame.font.Font(None, 24)
-        
-        # Draw dialogue
-        if self.state.current_dialogue:
-            visible_text = self.state.current_dialogue[:int(self.dialogue_char_index)]
-            dialogue_surf = font.render(visible_text, True, (255, 255, 255))
-            screen.blit(dialogue_surf, (50, self.screen_height - 120))
-        
-        # Draw menu
-        if self.state.phase == CombatPhase.PLAYER_MENU:
-            actions = ["FIGHT", "ACT", "ITEM", "MERCY"]
-            x = 80
-            for i, action in enumerate(actions):
-                color = (255, 255, 0) if i == self.menu_index else (255, 255, 255)
-                text = font.render(action, True, color)
-                screen.blit(text, (x, self.screen_height - 50))
-                x += 120
-        
-        # Draw HP
-        hp_text = f"HP {self.state.player_stats.hp}/{self.state.player_stats.max_hp}"
-        hp_surf = font.render(hp_text, True, (255, 255, 255))
-        screen.blit(hp_surf, (50, self.screen_height - 80))
+        # Draw unified UI (not affected by shake)
+        self.ui.draw(
+            screen=screen,
+            phase=self.state.phase,
+            menu_index=self.menu_index,
+            submenu_index=self.submenu_index,
+            in_submenu=self.in_submenu,
+            dialogue=self.state.current_dialogue,
+            dialogue_progress=self.dialogue_char_index,
+            dimension=self.dimension,
+            rules=self.rules,
+            resonance=self.resonance,
+            enemy_name=self.enemy.name if self.enemy else "",
+            player_stats=self.state.player_stats,
+            enemy_stats=self.enemy.stats if self.enemy else None,
+            act_options=self.enemy.act_options if self.enemy else None,
+            inventory=self.state.inventory,
+            fight_bar_position=self.fight_bar_position,
+            enemy=self.enemy
+        )
 
 
 def create_dimensional_battle_system(

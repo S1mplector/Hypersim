@@ -19,7 +19,6 @@ import pygame
 from .core import CombatResult, CombatStats, CombatPhase
 from .dimensional_combat import CombatDimension, PerceptionState, get_dimension_from_enemy
 from .dimensional_battle_system import DimensionalBattleSystem, create_dimensional_battle_system
-from .dimensional_ui import DimensionalCombatUI
 from .combat_effects import get_effects_manager
 from .enemies import get_enemy, CombatEnemy
 
@@ -85,11 +84,8 @@ class DimensionalCombatIntegration:
         self.width = screen.get_width()
         self.height = screen.get_height()
         
-        # Battle system
+        # Battle system (includes its own UI)
         self.battle_system = create_dimensional_battle_system(self.width, self.height)
-        
-        # UI
-        self.combat_ui = DimensionalCombatUI(self.width, self.height)
         
         # State
         self.in_combat = False
@@ -282,13 +278,13 @@ class DimensionalCombatIntegration:
             self._update_transition(dt)
             return
         
-        # Update battle
+        # Update battle (includes UI update)
         if self.in_combat:
             self.battle_system.update(dt)
             
-            # Update UI
+            # Update battle system's UI
             if self.battle_system.state and self.battle_system.enemy:
-                self.combat_ui.update(
+                self.battle_system.ui.update(
                     dt,
                     self.battle_system.state.player_stats,
                     self.battle_system.enemy.stats,
@@ -405,31 +401,8 @@ class DimensionalCombatIntegration:
         # Clear screen
         self.screen.fill((0, 0, 0))
         
-        # Draw battle system
+        # Draw battle system (includes unified UI)
         self.battle_system.draw(self.screen)
-        
-        # Draw enhanced UI on top
-        if self.battle_system.state and self.battle_system.enemy:
-            state = self.battle_system.state
-            enemy = self.battle_system.enemy
-            
-            self.combat_ui.draw(
-                self.screen,
-                state.phase,
-                self.battle_system.menu_index,
-                self.battle_system.submenu_index,
-                self.battle_system.in_submenu,
-                state.current_dialogue,
-                self.battle_system.dialogue_char_index,
-                self.battle_system.dimension,
-                self.battle_system.rules,
-                self.battle_system.resonance,
-                enemy_name=enemy.name,
-                player_stats=state.player_stats,
-                enemy_stats=enemy.stats,
-                act_options=enemy.act_options,
-                inventory=state.inventory,
-            )
 
 
 def create_dimensional_combat_integration(

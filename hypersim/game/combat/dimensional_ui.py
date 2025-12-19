@@ -225,13 +225,15 @@ class DimensionalCombatUI:
              enemy_name: str = "", player_stats: Optional[CombatStats] = None,
              enemy_stats: Optional[CombatStats] = None,
              act_options: Optional[List] = None,
-             inventory: Optional[List[str]] = None) -> None:
+             inventory: Optional[List[str]] = None,
+             fight_bar_position: float = 0.0,
+             enemy: Optional[object] = None) -> None:
         """Draw the complete combat UI."""
         # Draw dimension indicator
         self._draw_dimension_indicator(screen, dimension)
         
-        # Draw enemy area
-        self._draw_enemy_area(screen, enemy_name, enemy_stats)
+        # Draw enemy area with preview
+        self._draw_enemy_area(screen, enemy_name, enemy_stats, enemy, dimension)
         
         # Draw player area
         self._draw_player_area(screen, player_stats)
@@ -242,8 +244,11 @@ class DimensionalCombatUI:
         # Draw resonance
         self._draw_resonance(screen, resonance)
         
-        # Draw dialogue box
-        self._draw_dialogue_box(screen, dialogue, dialogue_progress)
+        # Draw dialogue box (only during certain phases)
+        if phase in (CombatPhase.INTRO, CombatPhase.ENEMY_DIALOGUE, 
+                     CombatPhase.RESOLUTION, CombatPhase.VICTORY, 
+                     CombatPhase.DEFEAT, CombatPhase.SPARE, CombatPhase.FLEE):
+            self._draw_dialogue_box(screen, dialogue, dialogue_progress)
         
         # Draw menu (if applicable)
         if phase == CombatPhase.PLAYER_MENU:
@@ -255,7 +260,7 @@ class DimensionalCombatUI:
         elif phase == CombatPhase.PLAYER_MERCY:
             self._draw_submenu(screen, "MERCY", ["Spare", "Flee"], submenu_index)
         elif phase == CombatPhase.PLAYER_FIGHT:
-            self._draw_fight_bar(screen, rules)
+            self._draw_fight_bar(screen, fight_bar_position)
         
         # Draw combat log
         self._draw_combat_log(screen)
@@ -296,8 +301,10 @@ class DimensionalCombatUI:
         screen.blit(subtitle, (panel_x + 8, panel_y + 32))
     
     def _draw_enemy_area(self, screen: pygame.Surface, enemy_name: str, 
-                         enemy_stats: Optional[CombatStats]) -> None:
-        """Draw enemy name and health."""
+                         enemy_stats: Optional[CombatStats],
+                         enemy: Optional[object] = None,
+                         dimension: CombatDimension = CombatDimension.TWO_D) -> None:
+        """Draw enemy name, health, and preview."""
         cx = self.screen_width // 2
         
         # Enemy name
@@ -313,6 +320,9 @@ class DimensionalCombatUI:
             hp_text = f"{enemy_stats.hp}/{enemy_stats.max_hp}"
             hp_surf = self.font_small.render(hp_text, True, (200, 200, 200))
             screen.blit(hp_surf, (cx - hp_surf.get_width() // 2, 94))
+        
+        # Enemy preview/sprite below health bar
+        self._draw_enemy_preview(screen, enemy, dimension, cx, 120)
     
     def _draw_player_area(self, screen: pygame.Surface, 
                           player_stats: Optional[CombatStats]) -> None:
@@ -577,27 +587,111 @@ class DimensionalCombatUI:
             text_surf = self.font_medium.render(text, True, color)
             screen.blit(text_surf, (x, y))
     
-    def _draw_fight_bar(self, screen: pygame.Surface, rules: DimensionalCombatRules) -> None:
-        """Draw the fight timing bar."""
+    def _draw_fight_bar(self, screen: pygame.Surface, position: float) -> None:
+        """Draw the fight timing bar with moving indicator."""
         bar_x = self.screen_width // 2 - 150
         bar_y = self.screen_height // 2 - 10
         bar_width = 300
-        bar_height = 20
+        bar_height = 24
         
         # Background
-        pygame.draw.rect(screen, (40, 40, 50), (bar_x, bar_y, bar_width, bar_height))
+        pygame.draw.rect(screen, (30, 30, 40), (bar_x, bar_y, bar_width, bar_height))
         
-        # Center zone (best timing)
-        center_width = 30
+        # Center zone (best timing) - green sweet spot
+        center_width = 40
         center_x = bar_x + bar_width // 2 - center_width // 2
-        pygame.draw.rect(screen, (100, 255, 100), (center_x, bar_y, center_width, bar_height))
+        pygame.draw.rect(screen, (40, 80, 40), (center_x, bar_y, center_width, bar_height))
+        pygame.draw.rect(screen, (100, 255, 100), (center_x, bar_y, center_width, bar_height), 2)
         
         # Border
-        pygame.draw.rect(screen, (200, 200, 200), (bar_x, bar_y, bar_width, bar_height), 2)
+        pygame.draw.rect(screen, (150, 150, 160), (bar_x, bar_y, bar_width, bar_height), 2)
+        
+        # Moving indicator line (the part that was missing!)
+        indicator_x = bar_x + int(position * bar_width)
+        indicator_color = (255, 255, 255)
+        
+        # Check if in sweet spot for color feedback
+        sweet_spot_start = bar_x + bar_width // 2 - center_width // 2
+        sweet_spot_end = sweet_spot_start + center_width
+        if sweet_spot_start <= indicator_x <= sweet_spot_end:
+            indicator_color = (100, 255, 100)
+        
+        # Draw indicator as a thick line
+        pygame.draw.rect(screen, indicator_color, 
+                        (indicator_x - 3, bar_y - 4, 6, bar_height + 8))
+        pygame.draw.rect(screen, (255, 255, 255),
+                        (indicator_x - 3, bar_y - 4, 6, bar_height + 8), 1)
         
         # Instructions
         text = self.font_medium.render("Press Z at the center!", True, (255, 255, 255))
-        screen.blit(text, (self.screen_width // 2 - text.get_width() // 2, bar_y - 30))
+        screen.blit(text, (self.screen_width // 2 - text.get_width() // 2, bar_y - 35))
+    
+    def _draw_enemy_preview(self, screen: pygame.Surface, enemy: Optional[object],
+                            dimension: CombatDimension, cx: int, y: int) -> None:
+        """Draw a visual preview of the enemy based on dimension."""
+        if not enemy:
+            return
+        
+        preview_y = y + 10
+        
+        # Get enemy color if available, default to white
+        enemy_color = getattr(enemy, 'color', (255, 255, 255))
+        if not enemy_color:
+            enemy_color = (255, 255, 255)
+        
+        # Draw dimension-appropriate preview
+        if dimension == CombatDimension.ONE_D:
+            # 1D enemy = point/dot with glow
+            pygame.draw.circle(screen, (50, 50, 80), (cx, preview_y + 30), 25)
+            pygame.draw.circle(screen, enemy_color, (cx, preview_y + 30), 12)
+            pygame.draw.circle(screen, (255, 255, 255), (cx, preview_y + 30), 6)
+            # Label
+            label = self.font_small.render("◆ POINT ENTITY", True, (100, 150, 200))
+            screen.blit(label, (cx - label.get_width() // 2, preview_y + 55))
+            
+        elif dimension == CombatDimension.TWO_D:
+            # 2D enemy = flat shape
+            points = [
+                (cx - 30, preview_y + 50),
+                (cx + 30, preview_y + 50),
+                (cx + 20, preview_y + 10),
+                (cx - 20, preview_y + 10),
+            ]
+            pygame.draw.polygon(screen, (40, 40, 60), points)
+            pygame.draw.polygon(screen, enemy_color, points, 2)
+            
+        elif dimension == CombatDimension.THREE_D:
+            # 3D enemy = cube outline
+            size = 25
+            # Front face
+            pygame.draw.rect(screen, (40, 40, 60), 
+                           (cx - size, preview_y + 15, size * 2, size * 2))
+            pygame.draw.rect(screen, enemy_color,
+                           (cx - size, preview_y + 15, size * 2, size * 2), 2)
+            # Depth lines
+            offset = 12
+            pygame.draw.line(screen, enemy_color, 
+                           (cx - size, preview_y + 15), (cx - size + offset, preview_y + 15 - offset), 1)
+            pygame.draw.line(screen, enemy_color,
+                           (cx + size, preview_y + 15), (cx + size + offset, preview_y + 15 - offset), 1)
+            pygame.draw.line(screen, enemy_color,
+                           (cx + size, preview_y + 15 + size * 2), 
+                           (cx + size + offset, preview_y + 15 + size * 2 - offset), 1)
+            
+        elif dimension == CombatDimension.FOUR_D:
+            # 4D enemy = tesseract-like
+            size = 20
+            # Inner cube
+            pygame.draw.rect(screen, (60, 40, 80),
+                           (cx - size//2, preview_y + 25, size, size))
+            # Outer cube
+            pygame.draw.rect(screen, enemy_color,
+                           (cx - size, preview_y + 15, size * 2, size * 2), 1)
+            # Connections
+            for dx, dy in [(-1, -1), (1, -1), (-1, 1), (1, 1)]:
+                pygame.draw.line(screen, (150, 100, 200),
+                               (cx + dx * size//2, preview_y + 25 + (size//2 if dy > 0 else 0)),
+                               (cx + dx * size, preview_y + 15 + (size * 2 if dy > 0 else 0)), 1)
     
     def _draw_combat_log(self, screen: pygame.Surface) -> None:
         """Draw recent combat log entries in a subtle area."""
