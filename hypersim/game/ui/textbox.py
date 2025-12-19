@@ -15,6 +15,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import pygame
 
+from hypersim.game.story.cinematics import get_first_point_dialogue
+
 # Voice synthesis for typewriter beeps
 try:
     from hypersim.game.audio.voice_synth import (
@@ -647,4 +649,45 @@ def create_campaign_dialogues() -> List[DialogueSequence]:
             ],
             pause_game=True,
         ),
+        # Chapter 1: First Point Introduction (warm, guiding tone)
+        DialogueSequence(
+            id="chapter_1_first_point_intro",
+            lines=_create_first_point_dialogue_lines(),
+            pause_game=True,
+            can_skip=False,
+        ),
     ]
+
+
+def _create_first_point_dialogue_lines() -> List[DialogueLine]:
+    """Create dialogue lines for the First Point introduction."""
+    first_point_data = get_first_point_dialogue()
+    lines = []
+    
+    for item in first_point_data:
+        speaker = item.get("speaker", "")
+        text = item.get("text", "")
+        
+        # Determine style based on speaker
+        if speaker == "System":
+            style = TextBoxStyle.TUTORIAL
+        elif speaker == "The First Point":
+            style = TextBoxStyle.DIMENSION
+        else:
+            style = TextBoxStyle.NARRATOR
+        
+        # Slower typing for atmospheric moments
+        typing_speed = 25.0 if speaker == "" else 30.0
+        
+        # Auto-advance for "..." lines
+        duration = 1.5 if text == "..." else 0.0
+        
+        lines.append(DialogueLine(
+            speaker=speaker,
+            text=text,
+            style=style,
+            typing_speed=typing_speed,
+            duration=duration,
+        ))
+    
+    return lines

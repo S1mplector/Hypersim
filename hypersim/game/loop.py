@@ -52,6 +52,9 @@ from hypersim.game.combat import (
 # Story/Narrative system
 from hypersim.game.story.narrative import StoryManager, StoryRoute, StoryChapter, ENDINGS
 
+# Cinematic system for Chapter 1 First Point intro
+from hypersim.game.story.cinematics import FirstPointCinematic
+
 if TYPE_CHECKING:
     from hypersim.game.session import GameSession
 
@@ -173,6 +176,10 @@ class GameLoop:
         self._current_encounter_entity: Optional[Entity] = None
         self._use_dimensional_combat: bool = True  # Use new system by default
         
+        # === CINEMATIC SYSTEM ===
+        self.first_point_cinematic = FirstPointCinematic(self.screen)
+        self._chapter_1_cinematic_played = False
+        
         # Input handler reference for launcher integration
         self._input = self.input_handler
         
@@ -225,6 +232,28 @@ class GameLoop:
             player_transform = player.get(Transform)
             if not player_transform:
                 return
+            
+            # Check for nearby NPCs first (including The First Point)
+            for entity in self.world.entities.values():
+                if not entity.has_tag("interactable") and not entity.has_tag("npc"):
+                    continue
+                
+                entity_transform = entity.get(Transform)
+                if not entity_transform:
+                    continue
+                
+                # Check distance (use 1D distance for 1D, 2D for others)
+                dim_id = self.session.active_dimension.id
+                if dim_id == "1d":
+                    dist = abs(player_transform.position[0] - entity_transform.position[0])
+                else:
+                    dist = np.linalg.norm(
+                        player_transform.position[:2] - entity_transform.position[:2]
+                    )
+                
+                if dist < 3.0:
+                    self._interact_with_npc(entity)
+                    return
             
             # Check for nearby portals
             for entity in self.world.entities.values():
@@ -312,9 +341,14 @@ class GameLoop:
         
         self._dimension_intros_shown.add(dim_id)
         
+        # Special cinematic for Chapter 1 (1D) - First Point introduction
+        if dim_id == "1d" and not self._chapter_1_cinematic_played:
+            self._chapter_1_cinematic_played = True
+            self._start_first_point_cinematic()
+            return
+        
         # Map dimensions to dialogue sequences
         intro_map = {
-            "1d": "intro_1d",
             "2d": "intro_2d",
             "3d": "intro_3d",
             "4d": "intro_4d",
@@ -323,6 +357,135 @@ class GameLoop:
         seq_id = intro_map.get(dim_id)
         if seq_id:
             self.dialogue.start_sequence(seq_id)
+    
+    def _start_first_point_cinematic(self) -> None:
+        """Start the First Point cinematic for Chapter 1."""
+        def on_cinematic_complete():
+            # Spawn the First Point as an interactable NPC after cinematic
+            self._spawn_first_point_npc()
+        
+        self.first_point_cinematic.on_cinematic_complete = on_cinematic_complete
+        self.first_point_cinematic.start(self.dialogue)
+    
+    def _spawn_first_point_npc(self) -> None:
+        """Spawn the First Point as an interactable NPC entity."""
+        # Check if already spawned
+        if self.world.get("the_first_point"):
+            return
+        
+        first_point = Entity(id="the_first_point")
+        first_point.add(Transform(position=np.array([-3.0, 0.0, 0.0, 0.0])))
+        first_point.add(Velocity())
+        first_point.add(Renderable(color=(180, 100, 255), glow=2.0))  # Purple with strong glow
+        first_point.add(Collider(shape=ColliderShape.SEGMENT, size=np.array([1.0]), is_trigger=True))
+        first_point.add(AIBrain(
+            behavior="stationary",
+            state={"npc_id": "the_first_point", "is_friendly": True}
+        ))
+        first_point.add(DimensionAnchor(dimension_id="1d"))
+        first_point.tag("npc", "friendly", "the_first_point", "interactable")
+        self.world.spawn(first_point)
+    
+    def _interact_with_npc(self, npc_entity: Entity) -> None:
+        """Handle player interacting with an NPC."""
+        from hypersim.game.story.cinematics import get_first_point_interaction_dialogue
+        from hypersim.game.ui.textbox import DialogueSequence, DialogueLine, TextBoxStyle
+        
+        # Don't start dialogue if already in dialogue or combat
+        if self.dialogue.is_active:
+            return
+        if self.combat and self.combat.in_combat:
+            return
+        if self.dimensional_combat and self.dimensional_combat.in_combat:
+            return
+        
+        # Handle The First Point specifically
+        if npc_entity.has_tag("the_first_point"):
+            self._start_first_point_interaction()
+            return
+        
+        # Handle other NPCs through their AI state
+        ai_brain = npc_entity.get(AIBrain)
+        if ai_brain and ai_brain.state.get("npc_id"):
+            npc_id = ai_brain.state["npc_id"]
+            # Could load dialogue from npcs.py here
+            self.overlays.notify(f"Talked to {npc_id}", duration=2.0, color=(150, 200, 255))
+    
+    def _start_first_point_interaction(self) -> None:
+        """Start dialogue interaction with The First Point."""
+        from hypersim.game.story.cinematics import get_first_point_interaction_dialogue
+        from hypersim.game.ui.textbox import DialogueSequence, DialogueLine, TextBoxStyle
+        
+        # Create dialogue sequence dynamically
+        dialogue_data = get_first_point_interaction_dialogue("greeting")
+        lines = []
+        
+        for item in dialogue_data:
+            speaker = item.get("speaker", "")
+            text = item.get("text", "")
+            choices = item.get("choices", [])
+            
+            style = TextBoxStyle.DIMENSION if speaker == "The First Point" else TextBoxStyle.NARRATOR
+            
+            lines.append(DialogueLine(
+                speaker=speaker,
+                text=text,
+                style=style,
+                choices=choices,
+            ))
+        
+        if lines:
+            seq = DialogueSequence(
+                id="first_point_interaction",
+                lines=lines,
+                pause_game=True,
+            )
+            self.dialogue.register_sequence(seq)
+            
+            # Register choice callbacks
+            self._register_first_point_choices()
+            
+            self.dialogue.start_sequence("first_point_interaction")
+    
+    def _register_first_point_choices(self) -> None:
+        """Register callbacks for First Point dialogue choices."""
+        from hypersim.game.story.cinematics import get_first_point_interaction_dialogue
+        from hypersim.game.ui.textbox import DialogueSequence, DialogueLine, TextBoxStyle
+        
+        def create_choice_handler(choice_key: str):
+            def handler():
+                # Get the follow-up dialogue
+                dialogue_data = get_first_point_interaction_dialogue(choice_key)
+                lines = []
+                
+                for item in dialogue_data:
+                    speaker = item.get("speaker", "")
+                    text = item.get("text", "")
+                    choices = item.get("choices", [])
+                    
+                    style = TextBoxStyle.DIMENSION if speaker == "The First Point" else TextBoxStyle.NARRATOR
+                    
+                    lines.append(DialogueLine(
+                        speaker=speaker,
+                        text=text,
+                        style=style,
+                        choices=choices,
+                    ))
+                
+                if lines:
+                    seq = DialogueSequence(
+                        id=f"first_point_{choice_key}",
+                        lines=lines,
+                        pause_game=True,
+                    )
+                    self.dialogue.register_sequence(seq)
+                    self.dialogue.start_sequence(f"first_point_{choice_key}")
+            return handler
+        
+        # Register each choice handler
+        self.dialogue.register_event("line_info", create_choice_handler("line_info"))
+        self.dialogue.register_event("identity", create_choice_handler("identity"))
+        self.dialogue.register_event("farewell", create_choice_handler("farewell"))
     
     def _spawn_default_level(self, dimension_id: str) -> None:
         """Spawn default entities for a dimension."""
@@ -762,13 +925,18 @@ class GameLoop:
             # Process events
             self._process_events()
             
-            # Check if dialogue, combat, or overlay should pause game
+            # Check if dialogue, combat, cinematic, or overlay should pause game
             dialogue_active = self.dialogue.should_pause_game
+            cinematic_active = self.first_point_cinematic.is_active
             
             # Check both combat systems
             old_combat_active = self.combat and (self.combat.in_combat or self.combat.transitioning)
             dim_combat_active = self.dimensional_combat and (self.dimensional_combat.in_combat or self.dimensional_combat.transitioning)
             combat_active = old_combat_active or dim_combat_active
+            
+            # Update cinematic if active
+            if cinematic_active:
+                self.first_point_cinematic.update(dt)
             
             if dim_combat_active:
                 # Update NEW dimensional combat system
@@ -1118,6 +1286,23 @@ class GameLoop:
     
     def _render(self) -> None:
         """Render the current frame."""
+        # Check if First Point cinematic is active - render it on top of world
+        if self.first_point_cinematic.is_active:
+            # Render world underneath
+            dim_id = self.session.active_dimension.id
+            renderer = self._renderers.get(dim_id)
+            if renderer:
+                renderer.render(self.world, self.session.active_dimension)
+            else:
+                self.screen.fill((5, 5, 15))
+            
+            # Render cinematic overlay
+            self.first_point_cinematic.draw()
+            
+            # Draw dialogue on top of cinematic
+            self.dialogue.draw()
+            return
+        
         # Check if NEW dimensional combat is active - render it instead of world
         if self.dimensional_combat and (self.dimensional_combat.in_combat or self.dimensional_combat.transitioning):
             self.dimensional_combat.draw()

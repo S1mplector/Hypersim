@@ -17,6 +17,7 @@ class CombatPhase(Enum):
     PLAYER_ACT = auto()      # Player ACT submenu
     PLAYER_ITEM = auto()     # Player item submenu
     PLAYER_MERCY = auto()    # Player mercy submenu
+    PLAYER_SHIFT = auto()    # Player perception shift submenu
     ENEMY_DIALOGUE = auto()  # Enemy response/dialogue
     ENEMY_ATTACK = auto()    # Bullet hell dodge phase
     RESOLUTION = auto()      # Check win/lose/spare conditions
@@ -94,6 +95,7 @@ class CombatAction(Enum):
     ACT = auto()
     ITEM = auto()
     MERCY = auto()
+    SHIFT = auto()  # Dimensional perception shift
 
 
 @dataclass

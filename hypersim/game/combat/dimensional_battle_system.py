@@ -684,15 +684,15 @@ class DimensionalBattleSystem:
             if self.state.phase == CombatPhase.PLAYER_MENU:
                 # Horizontal menu navigation
                 if event.key == pygame.K_LEFT:
-                    self.menu_index = (self.menu_index - 1) % 4
+                    self.menu_index = (self.menu_index - 1) % 5  # 5 menu items
                     self.audio.on_menu_move()
                     return True
                 elif event.key == pygame.K_RIGHT:
-                    self.menu_index = (self.menu_index + 1) % 4
+                    self.menu_index = (self.menu_index + 1) % 5  # 5 menu items
                     self.audio.on_menu_move()
                     return True
             
-            elif self.state.phase in (CombatPhase.PLAYER_ACT, CombatPhase.PLAYER_ITEM, CombatPhase.PLAYER_MERCY):
+            elif self.state.phase in (CombatPhase.PLAYER_ACT, CombatPhase.PLAYER_ITEM, CombatPhase.PLAYER_MERCY, CombatPhase.PLAYER_SHIFT):
                 # Submenu navigation (vertical)
                 if event.key == pygame.K_UP:
                     max_items = self._get_submenu_count()
@@ -736,7 +736,21 @@ class DimensionalBattleSystem:
             return len(self.state.inventory) if self.state else 0
         elif self.state.phase == CombatPhase.PLAYER_MERCY:
             return 2  # Spare and Flee
+        elif self.state.phase == CombatPhase.PLAYER_SHIFT:
+            return self._get_shift_option_count()
         return 0
+    
+    def _get_shift_option_count(self) -> int:
+        """Get number of available perception shift options."""
+        # Base options: POINT, LINE, PLANE
+        count = 3
+        # 3D+ gets VOLUME
+        if self.dimension in (CombatDimension.THREE_D, CombatDimension.FOUR_D):
+            count += 1
+        # 4D gets HYPER
+        if self.dimension == CombatDimension.FOUR_D:
+            count += 1
+        return count
     
     def _handle_confirm(self) -> bool:
         """Handle confirm button."""
@@ -759,6 +773,9 @@ class DimensionalBattleSystem:
         elif self.state.phase == CombatPhase.PLAYER_MERCY:
             return self._confirm_mercy()
         
+        elif self.state.phase == CombatPhase.PLAYER_SHIFT:
+            return self._confirm_shift()
+        
         elif self.state.phase == CombatPhase.ENEMY_DIALOGUE:
             self.dialogue_char_index = len(self.state.current_dialogue)
             return True
@@ -776,7 +793,7 @@ class DimensionalBattleSystem:
     
     def _select_menu_option(self) -> bool:
         """Select menu option."""
-        actions = [CombatAction.FIGHT, CombatAction.ACT, CombatAction.ITEM, CombatAction.MERCY]
+        actions = [CombatAction.FIGHT, CombatAction.ACT, CombatAction.ITEM, CombatAction.MERCY, CombatAction.SHIFT]
         
         if 0 <= self.menu_index < len(actions):
             action = actions[self.menu_index]
@@ -798,6 +815,10 @@ class DimensionalBattleSystem:
                 self.submenu_index = 0
             elif action == CombatAction.MERCY:
                 self.state.phase = CombatPhase.PLAYER_MERCY
+                self.in_submenu = True
+                self.submenu_index = 0
+            elif action == CombatAction.SHIFT:
+                self.state.phase = CombatPhase.PLAYER_SHIFT
                 self.in_submenu = True
                 self.submenu_index = 0
             
@@ -939,6 +960,56 @@ class DimensionalBattleSystem:
         
         return True
     
+    def _confirm_shift(self) -> bool:
+        """Confirm perception shift selection."""
+        # Map submenu index to perception state
+        perception_options = [PerceptionState.POINT, PerceptionState.LINE, PerceptionState.PLANE]
+        
+        # Add dimension-specific options
+        if self.dimension in (CombatDimension.THREE_D, CombatDimension.FOUR_D):
+            perception_options.append(PerceptionState.VOLUME)
+        if self.dimension == CombatDimension.FOUR_D:
+            perception_options.append(PerceptionState.HYPER)
+        
+        if 0 <= self.submenu_index < len(perception_options):
+            target_perception = perception_options[self.submenu_index]
+            
+            # Check if already in this perception
+            if self.rules.current_perception == target_perception:
+                self.state.current_dialogue = f"* Already in {target_perception.value.upper()} perception."
+                self.state.phase = CombatPhase.ENEMY_DIALOGUE
+            else:
+                # Get energy cost
+                abilities = PerceptionAbilities.for_state(target_perception)
+                cost = abilities.activation_cost
+                
+                if self.rules.perception_energy >= cost:
+                    # Deduct energy and shift
+                    self.rules.perception_energy -= cost
+                    old_perception = self.rules.current_perception
+                    self.rules.current_perception = target_perception
+                    
+                    # Spawn shift effect
+                    self.effects.spawn_perception_shift_effect(
+                        self.soul.x, self.soul.y,
+                        old_perception, target_perception
+                    )
+                    
+                    self.state.current_dialogue = f"* Shifted to {target_perception.value.upper()} perception!"
+                    self.state.phase = CombatPhase.ENEMY_DIALOGUE
+                    
+                    # Build resonance for shifting
+                    self.resonance.add_resonance("plane", 3.0)
+                else:
+                    self.state.current_dialogue = f"* Not enough energy to shift! (Need {int(cost)})"
+                    self.state.phase = CombatPhase.ENEMY_DIALOGUE
+        
+        self.dialogue_char_index = 0
+        self.phase_timer = 0.0
+        self.in_submenu = False
+        
+        return True
+    
     def move_menu(self, direction: int) -> None:
         """Move menu selection."""
         if self.in_submenu:
@@ -948,12 +1019,14 @@ class DimensionalBattleSystem:
                 max_index = len(self.state.inventory) - 1
             elif self.state.phase == CombatPhase.PLAYER_MERCY:
                 max_index = 1
+            elif self.state.phase == CombatPhase.PLAYER_SHIFT:
+                max_index = self._get_shift_option_count() - 1
             else:
                 max_index = 0
             
             self.submenu_index = max(0, min(max_index, self.submenu_index + direction))
         else:
-            self.menu_index = max(0, min(3, self.menu_index + direction))
+            self.menu_index = max(0, min(4, self.menu_index + direction))  # 5 menu items (0-4)
     
     def draw(self, screen: pygame.Surface) -> None:
         """Draw the battle."""

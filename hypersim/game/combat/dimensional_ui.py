@@ -139,12 +139,13 @@ class DimensionalCombatUI:
             fill_color=(255, 200, 100),
         )
         
-        # Menu items
+        # Menu items (5 options including SHIFT for dimensional actions)
         self.menu_items = [
             CombatMenuItem(CombatAction.FIGHT, "FIGHT", "⚔", (255, 100, 100)),
             CombatMenuItem(CombatAction.ACT, "ACT", "✦", (255, 200, 100)),
             CombatMenuItem(CombatAction.ITEM, "ITEM", "◆", (100, 255, 100)),
             CombatMenuItem(CombatAction.MERCY, "MERCY", "♥", (255, 255, 100)),
+            CombatMenuItem(CombatAction.SHIFT, "SHIFT", "◈", (100, 200, 255)),
         ]
         
         # Combat log
@@ -259,6 +260,9 @@ class DimensionalCombatUI:
             self._draw_submenu(screen, "ITEM", inventory or [], submenu_index)
         elif phase == CombatPhase.PLAYER_MERCY:
             self._draw_submenu(screen, "MERCY", ["Spare", "Flee"], submenu_index)
+        elif phase == CombatPhase.PLAYER_SHIFT:
+            shift_options = self._get_shift_options(dimension, rules)
+            self._draw_shift_menu(screen, shift_options, submenu_index, rules)
         elif phase == CombatPhase.PLAYER_FIGHT:
             self._draw_fight_bar(screen, fight_bar_position)
         
@@ -518,11 +522,12 @@ class DimensionalCombatUI:
     def _draw_main_menu(self, screen: pygame.Surface, selected_index: int) -> None:
         """Draw main action menu."""
         menu_y = self.screen_height - 55
-        total_width = len(self.menu_items) * 120
+        item_width = 95  # Narrower to fit 5 items
+        total_width = len(self.menu_items) * item_width
         start_x = (self.screen_width - total_width) // 2
         
         for i, item in enumerate(self.menu_items):
-            x = start_x + i * 120
+            x = start_x + i * item_width
             is_selected = i == selected_index
             
             # Pulse animation for selected
@@ -532,16 +537,16 @@ class DimensionalCombatUI:
             
             # Background
             bg_color = (50, 50, 60) if is_selected else (30, 30, 40)
-            pygame.draw.rect(screen, bg_color, (x, menu_y, 110, 35))
+            pygame.draw.rect(screen, bg_color, (x, menu_y, item_width - 5, 35))
             
             # Border
             border_color = item.color if is_selected else (60, 60, 70)
-            pygame.draw.rect(screen, border_color, (x, menu_y, 110, 35), 2 if is_selected else 1)
+            pygame.draw.rect(screen, border_color, (x, menu_y, item_width - 5, 35), 2 if is_selected else 1)
             
             # Text
             text_color = item.color if is_selected else (150, 150, 150)
             text = self.font_medium.render(item.label, True, text_color)
-            text_x = x + (110 - text.get_width()) // 2
+            text_x = x + (item_width - 5 - text.get_width()) // 2
             screen.blit(text, (text_x, menu_y + 8))
             
             # Selection indicator
@@ -693,6 +698,118 @@ class DimensionalCombatUI:
                                (cx + dx * size//2, preview_y + 25 + (size//2 if dy > 0 else 0)),
                                (cx + dx * size, preview_y + 15 + (size * 2 if dy > 0 else 0)), 1)
     
+    def _get_shift_options(self, dimension: CombatDimension, 
+                           rules: DimensionalCombatRules) -> List[Tuple[str, str, int, bool]]:
+        """Get available perception shift options based on dimension.
+        
+        Returns list of (name, description, energy_cost, is_current).
+        """
+        from .dimensional_combat import PerceptionState, PerceptionAbilities
+        
+        options = []
+        current = rules.current_perception
+        
+        # Base options available in all dimensions
+        options.append((
+            "POINT", 
+            "Freeze in place, become invulnerable",
+            15,
+            current == PerceptionState.POINT
+        ))
+        options.append((
+            "LINE",
+            "Horizontal only, block vertical attacks",
+            5,
+            current == PerceptionState.LINE
+        ))
+        options.append((
+            "PLANE",
+            "Normal 2D movement (free)",
+            0,
+            current == PerceptionState.PLANE
+        ))
+        
+        # 3D and above get VOLUME
+        if dimension in (CombatDimension.THREE_D, CombatDimension.FOUR_D):
+            options.append((
+                "VOLUME",
+                "Phase between depth layers",
+                10,
+                current == PerceptionState.VOLUME
+            ))
+        
+        # 4D gets HYPER
+        if dimension == CombatDimension.FOUR_D:
+            options.append((
+                "HYPER",
+                "See trajectories, slow time",
+                25,
+                current == PerceptionState.HYPER
+            ))
+        
+        return options
+    
+    def _draw_shift_menu(self, screen: pygame.Surface, 
+                         options: List[Tuple[str, str, int, bool]],
+                         selected_index: int,
+                         rules: DimensionalCombatRules) -> None:
+        """Draw perception shift menu with energy costs."""
+        box_x = 50
+        box_y = self.screen_height - 180
+        box_width = self.screen_width - 100
+        box_height = 130
+        
+        # Background panel
+        pygame.draw.rect(screen, (15, 20, 30), (box_x, box_y, box_width, box_height))
+        pygame.draw.rect(screen, (100, 150, 200), (box_x, box_y, box_width, box_height), 2)
+        
+        # Title with current energy
+        energy_pct = int(rules.perception_energy / rules.max_perception_energy * 100)
+        title = f"◈ SHIFT PERCEPTION  [Energy: {energy_pct}%]"
+        title_surf = self.font_medium.render(title, True, (100, 200, 255))
+        screen.blit(title_surf, (box_x + 15, box_y + 8))
+        
+        # Options in grid
+        col_width = box_width // 2
+        y_start = box_y + 35
+        
+        for i, (name, desc, cost, is_current) in enumerate(options):
+            col = i % 2
+            row = i // 2
+            x = box_x + 20 + col * col_width
+            y = y_start + row * 32
+            
+            is_selected = i == selected_index
+            can_afford = rules.perception_energy >= cost or cost == 0
+            
+            # Selection indicator
+            if is_selected:
+                pygame.draw.rect(screen, (40, 60, 80), (x - 5, y - 2, col_width - 30, 28))
+                indicator = self.font_medium.render("❤", True, (255, 100, 100))
+                screen.blit(indicator, (x - 3, y + 2))
+            
+            # Name with current indicator
+            name_color = (100, 200, 255) if is_selected else (180, 180, 180)
+            if is_current:
+                name_color = (100, 255, 150)  # Green for current
+                name = f"● {name}"
+            elif not can_afford:
+                name_color = (100, 100, 100)  # Gray if can't afford
+            
+            name_surf = self.font_medium.render(name, True, name_color)
+            screen.blit(name_surf, (x + 15, y))
+            
+            # Cost
+            cost_text = f"({cost})" if cost > 0 else "(free)"
+            cost_color = (150, 150, 150) if can_afford else (255, 100, 100)
+            cost_surf = self.font_small.render(cost_text, True, cost_color)
+            screen.blit(cost_surf, (x + 15 + name_surf.get_width() + 5, y + 3))
+            
+            # Description (only for selected)
+            if is_selected:
+                desc_surf = self.font_small.render(desc, True, (120, 140, 160))
+                screen.blit(desc_surf, (box_x + 15, box_y + box_height - 22))
+    
     def _draw_combat_log(self, screen: pygame.Surface) -> None:
         """Draw recent combat log entries in a subtle area."""
         if not self.combat_log:
@@ -727,7 +844,7 @@ class DimensionalCombatUI:
                 hints.append(("TIME", "Q/E"))
         elif phase == CombatPhase.PLAYER_MENU:
             hints = [("SELECT", "←→"), ("CONFIRM", "Z")]
-        elif phase in (CombatPhase.PLAYER_ACT, CombatPhase.PLAYER_ITEM, CombatPhase.PLAYER_MERCY):
+        elif phase in (CombatPhase.PLAYER_ACT, CombatPhase.PLAYER_ITEM, CombatPhase.PLAYER_MERCY, CombatPhase.PLAYER_SHIFT):
             hints = [("SELECT", "↑↓"), ("CONFIRM", "Z"), ("BACK", "X")]
         elif phase == CombatPhase.INTRO:
             hints = [("CONTINUE", "Z")]

@@ -133,7 +133,11 @@ class LineRenderer(DimensionRenderer):
         # Different rendering for different entity types
         if entity.has_tag("player"):
             self._draw_player(screen_x, color, alpha)
-        elif entity.has_tag("enemy"):
+        elif entity.has_tag("the_first_point"):
+            self._draw_first_point(screen_x, alpha)
+        elif entity.has_tag("npc") or entity.has_tag("friendly"):
+            self._draw_npc(entity, screen_x, color, alpha)
+        elif entity.has_tag("enemy") or entity.has_tag("encounter_trigger"):
             self._draw_enemy(entity, screen_x, color, alpha)
         elif entity.get(Pickup):
             self._draw_pickup(entity, screen_x, alpha)
@@ -239,6 +243,79 @@ class LineRenderer(DimensionRenderer):
                     (screen_x, self.line_y),
                     8 - i
                 )
+    
+    def _draw_first_point(self, screen_x: int, alpha: int) -> None:
+        """Draw the First Point NPC with special purple glow effect."""
+        import math
+        
+        # Purple color for the First Point
+        base_color = (180, 100, 255)
+        
+        # Pulse animation
+        pulse = math.sin(pygame.time.get_ticks() / 800.0) * 0.15 + 1.0
+        
+        # Draw outer glow layers (largest to smallest)
+        glow_layers = 10
+        max_glow_radius = int(60 * pulse)
+        
+        for i in range(glow_layers, 0, -1):
+            layer_ratio = i / glow_layers
+            radius = int(max_glow_radius * layer_ratio)
+            
+            # Glow gets more transparent at outer edges
+            layer_alpha = int(40 * (1 - layer_ratio) * (alpha / 255))
+            
+            glow_surf = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+            glow_color = (*base_color, layer_alpha)
+            pygame.draw.circle(glow_surf, glow_color, (radius, radius), radius)
+            self.screen.blit(glow_surf, (screen_x - radius, self.line_y - radius))
+        
+        # Draw inner core layers
+        core_layers = 5
+        max_core_radius = int(20 * pulse)
+        
+        for i in range(core_layers):
+            layer_ratio = (core_layers - i) / core_layers
+            radius = int(max_core_radius * layer_ratio)
+            
+            # Blend toward white at center
+            blend = 1 - layer_ratio
+            core_color = (
+                int(base_color[0] + (255 - base_color[0]) * blend),
+                int(base_color[1] + (255 - base_color[1]) * blend),
+                int(base_color[2] + (255 - base_color[2]) * blend),
+                int(255 * (alpha / 255))
+            )
+            
+            core_surf = pygame.Surface((radius * 2 + 4, radius * 2 + 4), pygame.SRCALPHA)
+            pygame.draw.circle(core_surf, core_color, (radius + 2, radius + 2), radius)
+            self.screen.blit(core_surf, (screen_x - radius - 2, self.line_y - radius - 2))
+        
+        # Draw bright center point
+        center_size = int(6 * pulse)
+        pygame.draw.circle(self.screen, (255, 255, 255), (screen_x, self.line_y), center_size)
+        
+        # Draw interaction hint when player is nearby
+        font = pygame.font.Font(None, 18)
+        hint_text = font.render("Press E to talk", True, (200, 180, 255, int(180 * (alpha / 255))))
+        hint_rect = hint_text.get_rect(center=(screen_x, self.line_y - 45))
+        self.screen.blit(hint_text, hint_rect)
+    
+    def _draw_npc(self, entity: "Entity", screen_x: int, color: tuple, alpha: int) -> None:
+        """Draw a friendly NPC entity."""
+        # Draw with a soft glow
+        glow_color = (
+            min(255, color[0] + 30),
+            min(255, color[1] + 30),
+            min(255, color[2] + 30)
+        )
+        
+        # Outer glow
+        pygame.draw.circle(self.screen, glow_color, (screen_x, self.line_y), 14)
+        pygame.draw.circle(self.screen, color, (screen_x, self.line_y), 10)
+        
+        # White highlight
+        pygame.draw.circle(self.screen, (255, 255, 255), (screen_x, self.line_y), 4)
     
     def _draw_point(self, screen_x: int, color: tuple, size: int, alpha: int) -> None:
         """Draw a generic point entity."""
