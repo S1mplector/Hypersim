@@ -745,10 +745,10 @@ class GameLoop:
             
             # Check if dialogue, combat, or overlay should pause game
             dialogue_active = self.dialogue.should_pause_game
-            combat_active = self.combat and self.combat.in_combat
+            combat_active = self.combat and (self.combat.in_combat or self.combat.transitioning)
             
             if combat_active:
-                # Update combat system
+                # Update combat system (including transitions)
                 self.combat.update(dt)
             elif not self.paused and not dialogue_active:
                 # Update systems
@@ -844,7 +844,7 @@ class GameLoop:
             enemy_id: The combat enemy ID to fight
             entity: The world entity that triggered the encounter
         """
-        if not self.combat or self.combat.in_combat:
+        if not self.combat or self.combat.in_combat or self.combat.transitioning:
             return
         
         # Don't re-trigger recently fought entities
@@ -1057,8 +1057,8 @@ class GameLoop:
     
     def _render(self) -> None:
         """Render the current frame."""
-        # Check if combat is active - render combat instead of world
-        if self.combat and self.combat.in_combat:
+        # Check if combat is active or transitioning - render combat instead of world
+        if self.combat and (self.combat.in_combat or self.combat.transitioning):
             self.combat.draw()
             # Draw overlays on top of combat
             self.overlays.draw()

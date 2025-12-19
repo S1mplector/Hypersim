@@ -333,7 +333,7 @@ class CombatIntegration:
     
     def start_encounter(self, config: EncounterConfig) -> bool:
         """Start a combat encounter."""
-        if self.in_combat:
+        if self.in_combat or self.transitioning:
             return False
         
         # Try expanded enemies first, then fall back to original
@@ -441,11 +441,15 @@ class CombatIntegration:
         """Clean up after combat."""
         self.in_combat = False
         self.transitioning = False
+        
+        # Get enemy_id before clearing
+        enemy_id = self.current_enemy.id if self.current_enemy else ""
+        
         self.current_encounter = None
         self.current_enemy = None
         
         if self.on_combat_end:
-            self.on_combat_end(result, xp, gold)
+            self.on_combat_end(result, xp, gold, enemy_id)
     
     def update(self, dt: float) -> None:
         """Update combat systems."""
