@@ -14,7 +14,6 @@ class MenuState(Enum):
     """States of the main menu."""
     TITLE = auto()
     MAIN = auto()
-    CAMPAIGN = auto()
     SETTINGS = auto()
     CREDITS = auto()
 
@@ -44,17 +43,11 @@ class MainMenu:
         # Menu items per state
         self._menus: Dict[MenuState, List[MenuItem]] = {
             MenuState.MAIN: [
-                MenuItem("campaign", "Campaign", submenu="campaign"),
-                MenuItem("quickplay", "Quick Play", action=self._start_quickplay),
+                MenuItem("new_game", "New Game", action=self._new_game),
+                MenuItem("load_save", "Load Save", action=self._load_save),
                 MenuItem("settings", "Settings", submenu="settings"),
                 MenuItem("credits", "Credits", submenu="credits"),
                 MenuItem("quit", "Quit", action=self._quit),
-            ],
-            MenuState.CAMPAIGN: [
-                MenuItem("new_game", "New Game", action=self._new_campaign),
-                MenuItem("continue", "Continue", action=self._continue_campaign),
-                MenuItem("chapter_select", "Chapter Select", action=self._chapter_select),
-                MenuItem("back", "Back", submenu="main"),
             ],
             MenuState.SETTINGS: [
                 MenuItem("audio", "Audio Settings", action=self._audio_settings),
@@ -179,7 +172,6 @@ class MainMenu:
         if item.submenu:
             submenu_map = {
                 "main": MenuState.MAIN,
-                "campaign": MenuState.CAMPAIGN,
                 "settings": MenuState.SETTINGS,
                 "credits": MenuState.CREDITS,
             }
@@ -374,21 +366,13 @@ class MainMenu:
             self.screen.blit(text, text_rect)
     
     # Action callbacks
-    def _start_quickplay(self) -> None:
+    def _new_game(self) -> None:
         if self.on_start_game:
-            self.on_start_game("quickplay")
+            self.on_start_game("new_game")
     
-    def _new_campaign(self) -> None:
+    def _load_save(self) -> None:
         if self.on_start_game:
-            self.on_start_game("new_campaign")
-    
-    def _continue_campaign(self) -> None:
-        if self.on_start_game:
-            self.on_start_game("continue_campaign")
-    
-    def _chapter_select(self) -> None:
-        if self.on_start_game:
-            self.on_start_game("chapter_select")
+            self.on_start_game("load_save")
     
     def _audio_settings(self) -> None:
         pass  # TODO: Audio settings menu

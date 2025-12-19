@@ -629,8 +629,8 @@ class FancyMainMenu:
         
         # Main menu buttons
         main_buttons = [
-            ("campaign", "Campaign"),
-            ("quickplay", "Quick Play"),
+            ("new_game", "New Game"),
+            ("load_save", "Load Save"),
             ("settings", "Settings"),
             ("quit", "Quit"),
         ]
@@ -674,8 +674,8 @@ class FancyMainMenu:
         )
         
         # Set callbacks
-        self.buttons["campaign"].on_click = lambda: self._start_mode("campaign")
-        self.buttons["quickplay"].on_click = lambda: self._start_mode("quickplay")
+        self.buttons["new_game"].on_click = lambda: self._start_mode("new_game")
+        self.buttons["load_save"].on_click = lambda: self._start_mode("load_save")
         self.buttons["settings"].on_click = lambda: self._go_to(MenuState.SETTINGS)
         self.buttons["quit"].on_click = self._quit
         
@@ -750,7 +750,7 @@ class FancyMainMenu:
     def _get_active_buttons(self) -> List[str]:
         """Get button IDs for current state."""
         if self.state == MenuState.MAIN:
-            return ["campaign", "quickplay", "settings", "quit"]
+            return ["new_game", "load_save", "settings", "quit"]
         elif self.state == MenuState.SETTINGS:
             return ["audio", "graphics", "controls", "back_settings"]
         elif self.state in (MenuState.AUDIO, MenuState.GRAPHICS, MenuState.CONTROLS):
@@ -766,7 +766,111 @@ class FancyMainMenu:
                 else:
                     self._go_to(MenuState.MAIN if self.state == MenuState.SETTINGS else MenuState.SETTINGS)
                 return True
+        
+        # Handle settings interactions
+        if self.state in (MenuState.AUDIO, MenuState.GRAPHICS, MenuState.CONTROLS):
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                self._handle_settings_click(event.pos)
+                return True
+            elif event.type == pygame.MOUSEMOTION and pygame.mouse.get_pressed()[0]:
+                self._handle_settings_drag(event.pos)
+                return True
+        
         return False
+    
+    def _handle_settings_click(self, pos: Tuple[int, int]) -> None:
+        """Handle click on settings panel."""
+        panel_x = self.width // 2 - 200
+        panel_y = self.height // 2 - 100
+        panel_width = 400
+        
+        # Get settings for current state
+        if self.state == MenuState.AUDIO:
+            settings = [
+                ("Master Volume", "master_volume"),
+                ("Music Volume", "music_volume"),
+                ("SFX Volume", "sfx_volume"),
+            ]
+        elif self.state == MenuState.GRAPHICS:
+            settings = [
+                ("Fullscreen", "fullscreen"),
+                ("VSync", "vsync"),
+            ]
+        else:
+            settings = [
+                ("Mouse Sensitivity", "mouse_sensitivity"),
+            ]
+        
+        # Check each setting row
+        y = panel_y + 60
+        for label, key in settings:
+            value = self.settings.get(key, 0)
+            
+            if isinstance(value, bool):
+                # Toggle button area
+                toggle_x = panel_x + 20 + panel_width - 40 - 60
+                toggle_rect = pygame.Rect(toggle_x, y, 50, 24)
+                if toggle_rect.collidepoint(pos):
+                    self.settings[key] = not value
+                    self._apply_setting(key)
+                    return
+            else:
+                # Slider area
+                slider_x = panel_x + 20 + panel_width - 40 - 160
+                slider_width = 150
+                slider_rect = pygame.Rect(slider_x - 10, y, slider_width + 20, 24)
+                if slider_rect.collidepoint(pos):
+                    # Calculate new value
+                    new_value = (pos[0] - slider_x) / slider_width
+                    new_value = max(0.0, min(1.0, new_value))
+                    self.settings[key] = new_value
+                    self._apply_setting(key)
+                    self._dragging_setting = key
+                    return
+            
+            y += 50
+    
+    def _handle_settings_drag(self, pos: Tuple[int, int]) -> None:
+        """Handle dragging on settings sliders."""
+        if not hasattr(self, '_dragging_setting') or not self._dragging_setting:
+            return
+        
+        panel_x = self.width // 2 - 200
+        panel_width = 400
+        slider_x = panel_x + 20 + panel_width - 40 - 160
+        slider_width = 150
+        
+        # Update the dragged slider
+        key = self._dragging_setting
+        if key in self.settings and not isinstance(self.settings[key], bool):
+            new_value = (pos[0] - slider_x) / slider_width
+            new_value = max(0.0, min(1.0, new_value))
+            self.settings[key] = new_value
+            self._apply_setting(key)
+    
+    def _apply_setting(self, key: str) -> None:
+        """Apply a setting change immediately."""
+        if key == "master_volume":
+            if self.music_playing:
+                pygame.mixer.music.set_volume(
+                    self.settings["music_volume"] * self.settings["master_volume"]
+                )
+        elif key == "music_volume":
+            if self.music_playing:
+                pygame.mixer.music.set_volume(
+                    self.settings["music_volume"] * self.settings["master_volume"]
+                )
+        elif key == "fullscreen":
+            if self.settings["fullscreen"]:
+                pygame.display.set_mode((self.width, self.height), pygame.FULLSCREEN)
+            else:
+                pygame.display.set_mode((self.width, self.height))
+        elif key == "vsync":
+            # VSync requires recreating display
+            flags = pygame.FULLSCREEN if self.settings["fullscreen"] else 0
+            if self.settings["vsync"]:
+                flags |= pygame.DOUBLEBUF
+            pygame.display.set_mode((self.width, self.height), flags)
     
     def draw(self) -> None:
         """Draw the menu."""
