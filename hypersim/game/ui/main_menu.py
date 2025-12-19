@@ -15,7 +15,6 @@ class MenuState(Enum):
     TITLE = auto()
     MAIN = auto()
     CAMPAIGN = auto()
-    MULTIPLAYER = auto()
     SETTINGS = auto()
     CREDITS = auto()
 
@@ -47,7 +46,6 @@ class MainMenu:
             MenuState.MAIN: [
                 MenuItem("campaign", "Campaign", submenu="campaign"),
                 MenuItem("quickplay", "Quick Play", action=self._start_quickplay),
-                MenuItem("multiplayer", "Multiplayer", submenu="multiplayer"),
                 MenuItem("settings", "Settings", submenu="settings"),
                 MenuItem("credits", "Credits", submenu="credits"),
                 MenuItem("quit", "Quit", action=self._quit),
@@ -56,12 +54,6 @@ class MainMenu:
                 MenuItem("new_game", "New Game", action=self._new_campaign),
                 MenuItem("continue", "Continue", action=self._continue_campaign),
                 MenuItem("chapter_select", "Chapter Select", action=self._chapter_select),
-                MenuItem("back", "Back", submenu="main"),
-            ],
-            MenuState.MULTIPLAYER: [
-                MenuItem("local_coop", "Local Co-op (Split Screen)", action=self._local_coop),
-                MenuItem("host_lan", "Host LAN Game", action=self._host_lan),
-                MenuItem("join_lan", "Join LAN Game", action=self._join_lan),
                 MenuItem("back", "Back", submenu="main"),
             ],
             MenuState.SETTINGS: [
@@ -188,7 +180,6 @@ class MainMenu:
             submenu_map = {
                 "main": MenuState.MAIN,
                 "campaign": MenuState.CAMPAIGN,
-                "multiplayer": MenuState.MULTIPLAYER,
                 "settings": MenuState.SETTINGS,
                 "credits": MenuState.CREDITS,
             }
@@ -296,7 +287,6 @@ class MainMenu:
         state_titles = {
             MenuState.MAIN: "HYPERSIM",
             MenuState.CAMPAIGN: "CAMPAIGN",
-            MenuState.MULTIPLAYER: "MULTIPLAYER",
             MenuState.SETTINGS: "SETTINGS",
         }
         
@@ -399,18 +389,6 @@ class MainMenu:
     def _chapter_select(self) -> None:
         if self.on_start_game:
             self.on_start_game("chapter_select")
-    
-    def _local_coop(self) -> None:
-        if self.on_start_game:
-            self.on_start_game("local_coop")
-    
-    def _host_lan(self) -> None:
-        if self.on_start_game:
-            self.on_start_game("host_lan")
-    
-    def _join_lan(self) -> None:
-        if self.on_start_game:
-            self.on_start_game("join_lan")
     
     def _audio_settings(self) -> None:
         pass  # TODO: Audio settings menu

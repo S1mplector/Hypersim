@@ -35,6 +35,13 @@ from hypersim.game.story.campaign import Campaign
 from hypersim.game.story.npc import NPCManager
 from hypersim.game.story.lore import Codex
 
+# Combat system
+from hypersim.game.combat import (
+    CombatIntegration, CombatResult, CombatStats,
+    create_combat_integration, get_realms_for_dimension,
+    get_starting_realm, EncounterConfig, EncounterType
+)
+
 if TYPE_CHECKING:
     from hypersim.game.session import GameSession
 
@@ -127,6 +134,11 @@ class GameLoop:
         
         # Track dimension intro dialogues shown
         self._dimension_intros_shown: set = set()
+        
+        # === COMBAT SYSTEM ===
+        self.combat: Optional[CombatIntegration] = None
+        self._current_realm_id: Optional[str] = None
+        self._steps_in_realm: int = 0
         
         # Wire up event handlers
         self._setup_event_handlers()
@@ -557,6 +569,11 @@ class GameLoop:
         """Run the main game loop."""
         self.running = True
         
+        # Initialize combat system
+        self.combat = create_combat_integration(self.screen, self.session)
+        self.combat.on_combat_end = self._on_combat_end
+        self.combat.on_boss_defeated = self._on_boss_defeated
+        
         # Initialize first dimension
         self._reload_dimension()
         
@@ -566,16 +583,23 @@ class GameLoop:
             # Process events
             self._process_events()
             
-            # Check if dialogue or overlay should pause game
+            # Check if dialogue, combat, or overlay should pause game
             dialogue_active = self.dialogue.should_pause_game
+            combat_active = self.combat and self.combat.in_combat
             
-            if not self.paused and not dialogue_active:
+            if combat_active:
+                # Update combat system
+                self.combat.update(dt)
+            elif not self.paused and not dialogue_active:
                 # Update systems
                 self.world.update(dt)
                 
                 # Process game events for session/objectives
                 for event in self.world.drain_events():
                     self.session.record_event(event.event_type, **event.data)
+                
+                # Check for random encounters
+                self._check_random_encounter()
             
             # Update dialogue and overlays (always)
             self.dialogue.update(dt)
@@ -594,10 +618,107 @@ class GameLoop:
         
         pygame.quit()
     
+    def _check_random_encounter(self) -> None:
+        """Check for random combat encounters based on player movement."""
+        if not self.combat or self.combat.in_combat:
+            return
+        
+        # Only check encounters when player moves
+        player = self.world.get("player")
+        if not player:
+            return
+        
+        velocity = player.get(Velocity)
+        if not velocity:
+            return
+        
+        # Check if player is moving
+        speed = np.linalg.norm(velocity.linear[:2])
+        if speed < 0.1:
+            return
+        
+        # Increment steps
+        self._steps_in_realm += 1
+        
+        # Check for encounter every ~60 frames (1 second) of movement
+        if self._steps_in_realm % 60 != 0:
+            return
+        
+        # Get current realm (default to dimension's starting realm)
+        if not self._current_realm_id:
+            dim_id = self.session.active_dimension.id
+            starting_realm = get_starting_realm(dim_id)
+            self._current_realm_id = starting_realm.id if starting_realm else None
+        
+        if not self._current_realm_id:
+            return
+        
+        # Check for random encounter
+        enemy_id = self.combat.check_random_encounter(self._current_realm_id)
+        if enemy_id:
+            self._start_combat_encounter(enemy_id)
+    
+    def _start_combat_encounter(self, enemy_id: str) -> None:
+        """Start a combat encounter with the given enemy."""
+        if not self.combat:
+            return
+        
+        # Release mouse capture for combat
+        if self._mouse_captured:
+            self._set_mouse_capture(False)
+        
+        # Start encounter
+        if self.combat.start_random_encounter(enemy_id):
+            self.audio.play("encounter")
+            self.overlays.notify("⚔️ ENCOUNTER!", duration=1.5, color=(255, 100, 100))
+    
+    def _on_combat_end(self, result: CombatResult, xp: int, gold: int) -> None:
+        """Handle combat ending."""
+        # Update session
+        self.session.progression.xp += xp
+        self.session.progression.gold = getattr(self.session.progression, 'gold', 0) + gold
+        
+        # Show results
+        if result == CombatResult.VICTORY:
+            self.overlays.notify(f"Victory! +{xp} XP, +{gold}G", color=(255, 255, 100))
+            self.audio.play("victory")
+        elif result == CombatResult.SPARE:
+            self.overlays.notify(f"Spared! +{gold}G", color=(255, 255, 100))
+            self.audio.play("spare")
+        elif result == CombatResult.FLEE:
+            self.overlays.notify("Escaped!", color=(200, 200, 200))
+        elif result == CombatResult.DEFEAT:
+            self.overlays.notify("Defeated...", color=(255, 100, 100))
+            # Respawn player with reduced HP
+            if self.combat:
+                self.combat.player_stats.hp = self.combat.player_stats.max_hp // 2
+        
+        # Re-capture mouse if in 3D/4D
+        dim_id = self.session.active_dimension.id
+        if dim_id in ("3d", "4d"):
+            self._set_mouse_capture(True)
+    
+    def _on_boss_defeated(self, boss_id: str) -> None:
+        """Handle boss being defeated."""
+        self.overlays.notify(f"★ BOSS DEFEATED: {boss_id} ★", duration=5.0, color=(255, 220, 100))
+        self.audio.play("boss_defeated")
+        
+        # Unlock next dimension if this was a border boss
+        dim_id = self.session.active_dimension.id
+        next_dims = {"1d": "2d", "2d": "3d", "3d": "4d"}
+        if dim_id in next_dims:
+            # Could trigger dimension unlock dialogue here
+            self.dialogue.start_sequence(f"unlock_{next_dims[dim_id]}")
+    
     def _process_events(self) -> None:
         """Process pygame events."""
         for event in pygame.event.get():
-            # Let dialogue system handle input first
+            # Let combat system handle input first if active
+            if self.combat and self.combat.in_combat:
+                if self.combat.handle_input(event):
+                    continue
+            
+            # Let dialogue system handle input
             if self.dialogue.handle_input(event):
                 continue
             
@@ -669,6 +790,13 @@ class GameLoop:
     
     def _render(self) -> None:
         """Render the current frame."""
+        # Check if combat is active - render combat instead of world
+        if self.combat and self.combat.in_combat:
+            self.combat.draw()
+            # Draw overlays on top of combat
+            self.overlays.draw()
+            return
+        
         dim_id = self.session.active_dimension.id
         renderer = self._renderers.get(dim_id)
         

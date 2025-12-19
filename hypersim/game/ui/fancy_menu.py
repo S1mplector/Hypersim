@@ -631,7 +631,6 @@ class FancyMainMenu:
         main_buttons = [
             ("campaign", "Campaign"),
             ("quickplay", "Quick Play"),
-            ("multiplayer", "Multiplayer"),
             ("settings", "Settings"),
             ("quit", "Quit"),
         ]
@@ -677,7 +676,6 @@ class FancyMainMenu:
         # Set callbacks
         self.buttons["campaign"].on_click = lambda: self._start_mode("campaign")
         self.buttons["quickplay"].on_click = lambda: self._start_mode("quickplay")
-        self.buttons["multiplayer"].on_click = lambda: self._start_mode("multiplayer")
         self.buttons["settings"].on_click = lambda: self._go_to(MenuState.SETTINGS)
         self.buttons["quit"].on_click = self._quit
         
@@ -752,7 +750,7 @@ class FancyMainMenu:
     def _get_active_buttons(self) -> List[str]:
         """Get button IDs for current state."""
         if self.state == MenuState.MAIN:
-            return ["campaign", "quickplay", "multiplayer", "settings", "quit"]
+            return ["campaign", "quickplay", "settings", "quit"]
         elif self.state == MenuState.SETTINGS:
             return ["audio", "graphics", "controls", "back_settings"]
         elif self.state in (MenuState.AUDIO, MenuState.GRAPHICS, MenuState.CONTROLS):
