@@ -455,7 +455,7 @@ FIRST_POINT_INTERACTION_DIALOGUES = {
         {"speaker": "The First Point", "text": "Other beings walk this Line too."},
         {"speaker": "The First Point", "text": "Some are friendly. Some are lost. Some are... territorial."},
         {"speaker": "The First Point", "text": "At the far end lies the Endpoint, guarded by one who protects the way forward."},
-        {"speaker": "The First Point", "text": "Defeat them, and a new direction will reveal itself to you."},
+        {"speaker": "The First Point", "text": "Make your way through, and a new direction will reveal itself to you."},
         {"speaker": "The First Point", "text": "Is there anything else you wish to know?",
          "choices": [
              ("How do I defend myself?", "combat_tutorial"),
@@ -483,7 +483,7 @@ FIRST_POINT_INTERACTION_DIALOGUES = {
     ],
     "farewell": [
         {"speaker": "The First Point", "text": "Then go, little one. Explore. Grow. Become."},
-        {"speaker": "The First Point", "text": "And remember—no matter how far you travel..."},
+        {"speaker": "The First Point", "text": "And remember, no matter how far you travel..."},
         {"speaker": "The First Point", "text": "...every journey begins at a single point."},
         {"speaker": "The First Point", "text": "I will be here when you need me."},
     ],

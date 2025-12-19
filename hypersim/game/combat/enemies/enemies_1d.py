@@ -238,6 +238,26 @@ def _create_advanced_enemies() -> Dict[str, CombatEnemy]:
                     base_difficulty=1.2,
                     attack_dialogue="* \"NONE SHALL PASS BACKWARD!\"",
                 ),
+                EnemyAttackPattern(
+                    id="sentinel_split",
+                    name="Sentinel Split",
+                    duration=4.5,
+                    pattern_type="sentinel_multiply",  # New: splits into two points
+                    bullet_count=12,
+                    bullet_speed=200,
+                    base_difficulty=1.3,
+                    attack_dialogue="* \"I AM NOT ALONE IN MY CONVICTION!\"",
+                ),
+                EnemyAttackPattern(
+                    id="line_formation",
+                    name="Line Formation",
+                    duration=5.0,
+                    pattern_type="force_line",  # New: forms a line, constrains player
+                    bullet_count=15,
+                    bullet_speed=180,
+                    base_difficulty=1.4,
+                    attack_dialogue="* \"YOU WILL WALK MY PATH!\"",
+                ),
             ],
             xp_reward=12,
             gold_reward=8,

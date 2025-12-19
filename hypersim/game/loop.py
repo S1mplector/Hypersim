@@ -533,7 +533,7 @@ class GameLoop:
             shape=collider_shape,
             size=np.array([0.5]),
         ))
-        player.add(Health(current=100, max=100))
+        player.add(Health(current=20, max=20))
         player.add(Controller(controller_type=controller_type, speed=8.0))
         player.add(DimensionAnchor(dimension_id=dimension_id))
         player.tag("player", "controllable")
@@ -1156,6 +1156,8 @@ class GameLoop:
         if hasattr(self, '_current_encounter_entity') and self._current_encounter_entity:
             entity = self._current_encounter_entity
             if result == CombatResult.VICTORY:
+                # Trigger death animation before removing
+                self._trigger_entity_death_animation(entity)
                 # Remove defeated enemy from world
                 entity.active = False
                 self.world.despawn(entity.id)
@@ -1190,6 +1192,37 @@ class GameLoop:
         dim_id = self.session.active_dimension.id
         if dim_id in ("3d", "4d"):
             self._set_mouse_capture(True)
+    
+    def _trigger_entity_death_animation(self, entity: Entity) -> None:
+        """Trigger death/explosion animation for a 1D entity."""
+        dim_id = self.session.active_dimension.id
+        if dim_id != "1d":
+            return  # Only for 1D entities for now
+        
+        # Get the LineRenderer to access the particle system
+        renderer = self._renderers.get("1d")
+        if not renderer or not hasattr(renderer, 'particle_system'):
+            return
+        
+        # Get entity position and color
+        transform = entity.get(Transform)
+        renderable = entity.get(Renderable)
+        if not transform:
+            return
+        
+        # Calculate screen position
+        player = self.world.find_player()
+        player_x = 0.0
+        if player:
+            player_transform = player.get(Transform)
+            if player_transform:
+                player_x = player_transform.position[0]
+        
+        screen_x = renderer.world_to_screen(transform.position[0], 0)[0]
+        color = renderable.color if renderable else (255, 255, 255)
+        
+        # Trigger death animation
+        renderer.particle_system.trigger_death(entity.id, screen_x, color, 30)
     
     def _check_route_notification(self, route: StoryRoute) -> None:
         """Notify player if they've shifted to a specific route."""

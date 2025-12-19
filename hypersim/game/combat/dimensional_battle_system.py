@@ -566,6 +566,9 @@ class DimensionalBattleSystem:
         if perception_attack_text:
             self.state.current_dialogue = perception_attack_text
         
+        # Show enemy attack dialogue or idle dialogue in speech bubble
+        self._trigger_enemy_speech(pattern)
+        
         # Generate dimensional bullets using AI
         self.bullets = self._generate_dimensional_attack(pattern)
         self.grazed_bullets.clear()
@@ -573,6 +576,30 @@ class DimensionalBattleSystem:
         # Record player perception for AI learning
         if self.enemy_ai:
             self.enemy_ai.record_player_perception(self.rules.current_perception)
+    
+    def _trigger_enemy_speech(self, pattern=None) -> None:
+        """Trigger enemy speech bubble with contextual dialogue."""
+        if not self.enemy:
+            return
+        
+        # Priority: attack dialogue > random idle dialogue
+        speech_text = None
+        
+        if pattern and hasattr(pattern, 'attack_dialogue') and pattern.attack_dialogue:
+            speech_text = pattern.attack_dialogue
+        elif hasattr(self.enemy, 'idle_dialogues') and self.enemy.idle_dialogues:
+            # Random chance to show idle dialogue
+            if random.random() < 0.4:  # 40% chance
+                speech_text = random.choice(self.enemy.idle_dialogues)
+        
+        if speech_text:
+            # Clean up the text (remove leading *)
+            clean_text = speech_text.strip()
+            if clean_text.startswith('*'):
+                clean_text = clean_text[1:].strip()
+            
+            # Show in speech bubble
+            self.ui.show_enemy_speech(clean_text, duration=2.5)
     
     def _try_enemy_perception_attack(self) -> Optional[str]:
         """Check if enemy AI wants to use a perception attack."""

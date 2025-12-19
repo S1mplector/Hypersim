@@ -30,6 +30,7 @@ class ParticleType(Enum):
     LINE_WALKER = auto()       # Confused jittery motion
     FIRST_POINT = auto()       # Majestic purple aura
     HEALING = auto()           # Flowing healing particles
+    DEATH = auto()             # Death/disappear explosion
     GENERIC = auto()           # Default particle
 
 
@@ -307,9 +308,48 @@ class ParticleEmitter:
                     p.vx = (dx / dist) * speed
                     p.vy = (dy / dist) * speed
             p.alpha = 0.8 * (p.life / p.max_life)
+        elif p.particle_type == ParticleType.DEATH:
+            # Explode outward with deceleration and fade
+            p.vx *= 0.96  # Slow down over time
+            p.vy *= 0.96
+            # Fade out with flicker
+            life_ratio = p.life / p.max_life
+            flicker = 0.7 + 0.3 * math.sin(p.phase + self._time * 20)
+            p.alpha = life_ratio * flicker
+            p.phase += dt * 10
+            # Shrink as it fades
+            p.size = max(1, p.size * 0.98)
         else:
             # Generic fade
             p.alpha = p.life / p.max_life
+    
+    def emit_death_particles(self, count: int = 20) -> None:
+        """Emit death/explosion particles radiating outward."""
+        for _ in range(count):
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(80, 200)
+            
+            # Vary color slightly - make some particles brighter/whiter
+            brightness_boost = random.uniform(0, 100)
+            death_color = (
+                min(255, self.color[0] + int(brightness_boost)),
+                min(255, self.color[1] + int(brightness_boost)),
+                min(255, self.color[2] + int(brightness_boost)),
+            )
+            
+            self.particles.append(Particle(
+                x=self.base_x + random.uniform(-5, 5),
+                y=self.base_y + random.uniform(-5, 5),
+                vx=math.cos(angle) * speed,
+                vy=math.sin(angle) * speed,
+                size=random.uniform(3, 8),
+                alpha=1.0,
+                life=random.uniform(0.5, 1.2),
+                max_life=1.2,
+                color=death_color,
+                particle_type=ParticleType.DEATH,
+                phase=random.uniform(0, 2 * math.pi),
+            ))
     
     def emit_healing_particles(self, target_x: float, target_y: float, count: int = 8) -> None:
         """Emit healing particles that flow toward a target."""
@@ -409,6 +449,34 @@ class ParticleSystem1D:
         
         return True
     
+    def trigger_death(
+        self,
+        entity_id: str,
+        screen_x: float,
+        color: Tuple[int, int, int] = (255, 255, 255),
+        particle_count: int = 25,
+    ) -> None:
+        """Trigger death/explosion animation for an entity.
+        
+        Creates a burst of particles at the entity's position, then removes the emitter.
+        """
+        # Create a temporary emitter if one doesn't exist
+        if entity_id not in self.emitters:
+            emitter = ParticleEmitter(
+                entity_id=entity_id,
+                particle_type=ParticleType.DEATH,
+                base_x=screen_x,
+                base_y=self.line_y,
+                color=color,
+            )
+            self.emitters[entity_id] = emitter
+        else:
+            emitter = self.emitters[entity_id]
+            emitter.base_x = screen_x
+        
+        # Emit death particles
+        emitter.emit_death_particles(particle_count)
+    
     def draw(self) -> None:
         """Draw all particles."""
         for emitter in self.emitters.values():
@@ -429,6 +497,9 @@ class ParticleSystem1D:
                 elif p.particle_type == ParticleType.HEALING:
                     # Draw as glowing orb
                     self._draw_healing_particle(p, color)
+                elif p.particle_type == ParticleType.DEATH:
+                    # Draw as fading explosion particle
+                    self._draw_death_particle(p, color, size)
                 else:
                     # Default circular particle
                     self._draw_circle_particle(p, color, size)
@@ -502,6 +573,28 @@ class ParticleSystem1D:
         core_surf = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
         pygame.draw.circle(core_surf, core_color, (size, size), size)
         self.screen.blit(core_surf, (int(p.x) - size, int(p.y) - size))
+    
+    def _draw_death_particle(self, p: Particle, color: tuple, size: int) -> None:
+        """Draw a death/explosion particle with fading glow."""
+        # Outer glow (larger, more dramatic)
+        glow_size = size * 3
+        glow_surf = pygame.Surface((glow_size * 2, glow_size * 2), pygame.SRCALPHA)
+        glow_color = (*color[:3], int(color[3] * 0.5))
+        pygame.draw.circle(glow_surf, glow_color, (glow_size, glow_size), glow_size)
+        self.screen.blit(glow_surf, (int(p.x) - glow_size, int(p.y) - glow_size))
+        
+        # Bright core
+        core_surf = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
+        pygame.draw.circle(core_surf, color, (size, size), size)
+        self.screen.blit(core_surf, (int(p.x) - size, int(p.y) - size))
+        
+        # White hot center for freshly spawned particles
+        if p.life > p.max_life * 0.7:
+            hot_size = max(1, size // 2)
+            hot_alpha = int(color[3] * ((p.life / p.max_life - 0.7) / 0.3))
+            hot_surf = pygame.Surface((hot_size * 2, hot_size * 2), pygame.SRCALPHA)
+            pygame.draw.circle(hot_surf, (255, 255, 255, hot_alpha), (hot_size, hot_size), hot_size)
+            self.screen.blit(hot_surf, (int(p.x) - hot_size, int(p.y) - hot_size))
 
 
 def get_particle_type_for_entity(entity: "Entity") -> ParticleType:

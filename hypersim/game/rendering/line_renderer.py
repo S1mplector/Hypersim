@@ -457,24 +457,54 @@ class LineRenderer(DimensionRenderer):
         if player:
             health = player.get(Health)
             if health:
-                bar_width = 150
-                bar_height = 15
+                bar_width = 180
+                bar_height = 20
                 bar_x = 20
-                bar_y = self.height - 40
+                bar_y = self.height - 50
                 
-                # Background
-                pygame.draw.rect(self.screen, (40, 20, 20), (bar_x, bar_y, bar_width, bar_height))
-                # Health
-                pygame.draw.rect(
-                    self.screen, (50, 180, 80),
-                    (bar_x, bar_y, int(bar_width * health.ratio), bar_height)
-                )
-                # Border
-                pygame.draw.rect(self.screen, (100, 100, 100), (bar_x, bar_y, bar_width, bar_height), 1)
+                # HP Label above bar
+                hp_label = font.render("HP", True, (255, 255, 255))
+                self.screen.blit(hp_label, (bar_x, bar_y - 20))
                 
-                # Label
-                health_text = font.render(f"HP: {int(health.current)}/{int(health.max)}", True, (200, 200, 200))
-                self.screen.blit(health_text, (bar_x + bar_width + 10, bar_y))
+                # Dark background with slight transparency effect
+                bg_rect = pygame.Rect(bar_x, bar_y, bar_width, bar_height)
+                pygame.draw.rect(self.screen, (20, 10, 15), bg_rect)
+                
+                # Health fill with gradient effect (brighter at top)
+                fill_width = int(bar_width * health.ratio)
+                if fill_width > 0:
+                    # Determine color based on health percentage
+                    ratio = health.ratio
+                    if ratio > 0.5:
+                        # Green to yellow
+                        r = int(255 * (1 - (ratio - 0.5) * 2))
+                        g = 220
+                        b = 50
+                    else:
+                        # Yellow to red
+                        r = 255
+                        g = int(220 * ratio * 2)
+                        b = 50
+                    
+                    health_color = (r, g, b)
+                    
+                    # Main health bar
+                    pygame.draw.rect(self.screen, health_color, (bar_x, bar_y, fill_width, bar_height))
+                    
+                    # Highlight at top for 3D effect
+                    highlight_color = (min(255, r + 60), min(255, g + 40), min(255, b + 30))
+                    pygame.draw.rect(self.screen, highlight_color, (bar_x, bar_y, fill_width, 4))
+                    
+                    # Shadow at bottom
+                    shadow_color = (max(0, r - 60), max(0, g - 60), max(0, b - 30))
+                    pygame.draw.rect(self.screen, shadow_color, (bar_x, bar_y + bar_height - 3, fill_width, 3))
+                
+                # Border with slight glow effect
+                pygame.draw.rect(self.screen, (80, 80, 100), bg_rect, 2)
+                
+                # Numeric display to the right
+                health_text = font.render(f"{int(health.current)} / {int(health.max)}", True, (255, 255, 255))
+                self.screen.blit(health_text, (bar_x + bar_width + 12, bar_y + 2))
         
         # Dimension label
         dim_text = font.render("1D - Line World", True, (150, 150, 200))

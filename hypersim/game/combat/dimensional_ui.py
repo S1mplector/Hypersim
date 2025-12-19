@@ -63,26 +63,43 @@ class AnimatedBar:
             self.current_value += (self.target_value - self.current_value) * self.animation_speed * 0.5 * dt
     
     def draw(self, screen: pygame.Surface) -> None:
-        """Draw the animated bar."""
-        # Background
-        pygame.draw.rect(screen, self.background_color,
-                        (int(self.x), int(self.y), int(self.width), int(self.height)))
+        """Draw the animated bar with polished 3D effect."""
+        x, y, w, h = int(self.x), int(self.y), int(self.width), int(self.height)
+        
+        # Dark background
+        pygame.draw.rect(screen, (20, 15, 25), (x, y, w, h))
         
         # Damage preview (red part that fades)
         if self.current_value > self.display_value:
-            damage_width = int(self.width * self.current_value)
-            pygame.draw.rect(screen, self.damage_color,
-                           (int(self.x), int(self.y), damage_width, int(self.height)))
+            damage_width = int(w * self.current_value)
+            pygame.draw.rect(screen, self.damage_color, (x, y, damage_width, h))
         
-        # Current fill
-        fill_width = int(self.width * self.display_value)
+        # Current fill with gradient effect
+        fill_width = int(w * self.display_value)
         if fill_width > 0:
-            pygame.draw.rect(screen, self.fill_color,
-                           (int(self.x), int(self.y), fill_width, int(self.height)))
+            # Main bar
+            pygame.draw.rect(screen, self.fill_color, (x, y, fill_width, h))
+            
+            # Highlight at top (brighter)
+            highlight = (
+                min(255, self.fill_color[0] + 60),
+                min(255, self.fill_color[1] + 40),
+                min(255, self.fill_color[2] + 30),
+            )
+            highlight_h = max(2, h // 4)
+            pygame.draw.rect(screen, highlight, (x, y, fill_width, highlight_h))
+            
+            # Shadow at bottom (darker)
+            shadow = (
+                max(0, self.fill_color[0] - 50),
+                max(0, self.fill_color[1] - 50),
+                max(0, self.fill_color[2] - 30),
+            )
+            shadow_h = max(2, h // 5)
+            pygame.draw.rect(screen, shadow, (x, y + h - shadow_h, fill_width, shadow_h))
         
         # Border
-        pygame.draw.rect(screen, self.border_color,
-                        (int(self.x), int(self.y), int(self.width), int(self.height)), 1)
+        pygame.draw.rect(screen, self.border_color, (x, y, w, h), 1)
 
 
 @dataclass
@@ -162,6 +179,15 @@ class DimensionalCombatUI:
         self._enemy_oscillation = 0.0  # For movement animation
         self._last_enemy_id: Optional[str] = None
         
+        # Enemy speech bubble system
+        self._speech_bubble_text: str = ""
+        self._speech_bubble_char_index: float = 0.0
+        self._speech_bubble_duration: float = 0.0
+        self._speech_bubble_max_duration: float = 0.0
+        self._speech_bubble_visible: bool = False
+        self._speech_bubble_fade: float = 1.0
+        self._speech_typewriter_speed: float = 30.0  # Characters per second
+        
         # Dimension colors
         self.dimension_colors = {
             CombatDimension.ONE_D: (100, 200, 255),
@@ -218,6 +244,22 @@ class DimensionalCombatUI:
         # Update enemy preview animation
         self._enemy_preview_time += dt
         
+        # Update speech bubble
+        if self._speech_bubble_visible:
+            # Typewriter effect
+            if self._speech_bubble_char_index < len(self._speech_bubble_text):
+                self._speech_bubble_char_index += self._speech_typewriter_speed * dt
+            
+            # Duration countdown
+            if self._speech_bubble_char_index >= len(self._speech_bubble_text):
+                self._speech_bubble_duration -= dt
+                if self._speech_bubble_duration <= 0:
+                    # Start fade out
+                    self._speech_bubble_fade -= dt * 2
+                    if self._speech_bubble_fade <= 0:
+                        self._speech_bubble_visible = False
+                        self._speech_bubble_fade = 1.0
+        
         # Age combat log entries
         self.combat_log = [(msg, age + dt) for msg, age in self.combat_log if age < 5.0]
     
@@ -226,6 +268,30 @@ class DimensionalCombatUI:
         self.combat_log.append((message, 0.0))
         if len(self.combat_log) > self.max_log_entries:
             self.combat_log.pop(0)
+    
+    def show_enemy_speech(self, text: str, duration: float = 3.0) -> None:
+        """Show a speech bubble near the enemy with the given text.
+        
+        Args:
+            text: The dialogue text to display
+            duration: How long to show after text is fully typed (seconds)
+        """
+        self._speech_bubble_text = text
+        self._speech_bubble_char_index = 0.0
+        self._speech_bubble_duration = duration
+        self._speech_bubble_max_duration = duration
+        self._speech_bubble_visible = True
+        self._speech_bubble_fade = 1.0
+    
+    def hide_enemy_speech(self) -> None:
+        """Immediately hide the enemy speech bubble."""
+        self._speech_bubble_visible = False
+        self._speech_bubble_text = ""
+        self._speech_bubble_char_index = 0.0
+    
+    def is_speech_active(self) -> bool:
+        """Check if a speech bubble is currently showing."""
+        return self._speech_bubble_visible
     
     def draw(self, screen: pygame.Surface, phase: CombatPhase, 
              menu_index: int, submenu_index: int, in_submenu: bool,
@@ -244,6 +310,10 @@ class DimensionalCombatUI:
         
         # Draw enemy area with preview
         self._draw_enemy_area(screen, enemy_name, enemy_stats, enemy, dimension)
+        
+        # Draw enemy speech bubble if active
+        if self._speech_bubble_visible:
+            self._draw_enemy_speech_bubble(screen)
         
         # Draw player area
         self._draw_player_area(screen, player_stats)
@@ -639,6 +709,85 @@ class DimensionalCombatUI:
         # Instructions
         text = self.font_medium.render("Press Z at the center!", True, (255, 255, 255))
         screen.blit(text, (self.screen_width // 2 - text.get_width() // 2, bar_y - 35))
+    
+    def _draw_enemy_speech_bubble(self, screen: pygame.Surface) -> None:
+        """Draw an animated speech bubble near the enemy."""
+        if not self._speech_bubble_text:
+            return
+        
+        # Get visible text (typewriter effect)
+        visible_chars = int(self._speech_bubble_char_index)
+        visible_text = self._speech_bubble_text[:visible_chars]
+        
+        if not visible_text:
+            return
+        
+        # Calculate alpha for fade effect
+        alpha = int(255 * self._speech_bubble_fade)
+        
+        # Speech bubble position (above/right of enemy area)
+        bubble_x = self.screen_width // 2 + 80
+        bubble_y = 100
+        
+        # Wrap text for bubble
+        max_width = 200
+        words = visible_text.split(' ')
+        lines = []
+        current_line = ""
+        
+        for word in words:
+            test_line = current_line + (" " if current_line else "") + word
+            test_width = self.font_small.size(test_line)[0]
+            if test_width <= max_width:
+                current_line = test_line
+            else:
+                if current_line:
+                    lines.append(current_line)
+                current_line = word
+        if current_line:
+            lines.append(current_line)
+        
+        # Calculate bubble size
+        padding = 12
+        line_height = 18
+        bubble_width = max(self.font_small.size(line)[0] for line in lines) + padding * 2
+        bubble_height = len(lines) * line_height + padding * 2
+        
+        # Create bubble surface with alpha
+        bubble_surf = pygame.Surface((bubble_width + 20, bubble_height + 15), pygame.SRCALPHA)
+        
+        # Draw bubble background with rounded effect
+        bubble_color = (40, 35, 50, alpha)
+        border_color = (150, 140, 180, alpha)
+        
+        # Main bubble rect
+        pygame.draw.rect(bubble_surf, bubble_color, 
+                        (0, 0, bubble_width, bubble_height), border_radius=8)
+        pygame.draw.rect(bubble_surf, border_color,
+                        (0, 0, bubble_width, bubble_height), 2, border_radius=8)
+        
+        # Speech tail (triangle pointing to enemy)
+        tail_points = [
+            (10, bubble_height),
+            (25, bubble_height),
+            (0, bubble_height + 12),
+        ]
+        pygame.draw.polygon(bubble_surf, bubble_color, tail_points)
+        pygame.draw.lines(bubble_surf, border_color, False, 
+                         [(10, bubble_height), (0, bubble_height + 12), (25, bubble_height)], 2)
+        
+        # Draw text
+        for i, line in enumerate(lines):
+            text_color = (230, 225, 240, alpha)
+            text_surf = self.font_small.render(line, True, text_color[:3])
+            text_surf.set_alpha(alpha)
+            bubble_surf.blit(text_surf, (padding, padding + i * line_height))
+        
+        # Add subtle animation (gentle bob)
+        bob_offset = int(math.sin(self._enemy_preview_time * 2) * 3)
+        
+        # Blit to screen
+        screen.blit(bubble_surf, (bubble_x, bubble_y + bob_offset))
     
     def _draw_enemy_preview(self, screen: pygame.Surface, enemy: Optional[object],
                             dimension: CombatDimension, cx: int, y: int) -> None:

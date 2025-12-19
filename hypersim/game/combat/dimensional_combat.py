@@ -715,6 +715,95 @@ class DimensionalPatternGenerator:
                     color=(100, 150, 200),
                 ))
         
+        elif attack_type == "sentinel_multiply":
+            # Forward Sentinel splits into two points that form a pincer attack
+            # Two points start together, split apart, then converge on player
+            wave_count = int(4 * difficulty)
+            for wave in range(wave_count):
+                delay = wave * 60
+                # Left point of the pair
+                bullets.append(DimensionalBullet(
+                    x=max_x + delay,
+                    y=center_y - 40,
+                    velocity_x=-200 * difficulty,
+                    velocity_y=30,  # Converging toward center
+                    source_dimension=CombatDimension.ONE_D,
+                    attack_direction="horizontal",
+                    radius=10,
+                    color=(255, 100, 100),
+                ))
+                # Right point of the pair
+                bullets.append(DimensionalBullet(
+                    x=max_x + delay,
+                    y=center_y + 40,
+                    velocity_x=-200 * difficulty,
+                    velocity_y=-30,  # Converging toward center
+                    source_dimension=CombatDimension.ONE_D,
+                    attack_direction="horizontal",
+                    radius=10,
+                    color=(255, 100, 100),
+                ))
+                # Connecting line bullets between the two points
+                for j in range(3):
+                    t = (j + 1) / 4
+                    bullets.append(DimensionalBullet(
+                        x=max_x + delay + 20,
+                        y=center_y - 40 + 80 * t,
+                        velocity_x=-180 * difficulty,
+                        velocity_y=0,
+                        source_dimension=CombatDimension.ONE_D,
+                        attack_direction="horizontal",
+                        radius=6,
+                        color=(255, 150, 100),
+                    ))
+        
+        elif attack_type == "force_line":
+            # Sentinel forms a line and forces player movement along it
+            # Creates walls that constrain vertical movement, then horizontal bullets
+            # Phase 1: Vertical walls closing in
+            wall_count = int(3 * difficulty)
+            for wall in range(wall_count):
+                delay = wall * 100
+                # Top wall closing down
+                for i in range(6):
+                    bullets.append(DimensionalBullet(
+                        x=min_x + i * (max_x - min_x) / 6,
+                        y=min_y - delay,
+                        velocity_x=0,
+                        velocity_y=80,  # Moving down
+                        source_dimension=CombatDimension.ONE_D,
+                        attack_direction="vertical",
+                        radius=8,
+                        color=(255, 80, 80),
+                    ))
+                # Bottom wall closing up
+                for i in range(6):
+                    bullets.append(DimensionalBullet(
+                        x=min_x + i * (max_x - min_x) / 6,
+                        y=max_y + delay,
+                        velocity_x=0,
+                        velocity_y=-80,  # Moving up
+                        source_dimension=CombatDimension.ONE_D,
+                        attack_direction="vertical",
+                        radius=8,
+                        color=(255, 80, 80),
+                    ))
+            
+            # Phase 2: Horizontal bullets along the forced line
+            line_bullets = int(8 * difficulty)
+            for i in range(line_bullets):
+                side = i % 2  # Alternate sides
+                bullets.append(DimensionalBullet(
+                    x=max_x + i * 50 if side == 0 else min_x - i * 50,
+                    y=center_y + random.uniform(-10, 10),
+                    velocity_x=-220 * difficulty if side == 0 else 220 * difficulty,
+                    velocity_y=0,
+                    source_dimension=CombatDimension.ONE_D,
+                    attack_direction="horizontal",
+                    radius=7,
+                    color=(255, 200, 50),
+                ))
+        
         return bullets
     
     @staticmethod
