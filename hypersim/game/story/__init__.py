@@ -19,6 +19,11 @@ from .dimensional_evolution import (
     get_forms_for_dimension, get_starting_form, get_transcendent_form,
     get_available_forms
 )
+from .chapters import (
+    CampaignManager, ChapterData, ChapterState, RealmProgress,
+    CHAPTERS, CHAPTER_DIALOGUES,
+    get_campaign_manager, reset_campaign
+)
 
 __all__ = [
     # Campaign
@@ -53,4 +58,13 @@ __all__ = [
     "get_starting_form",
     "get_transcendent_form",
     "get_available_forms",
+    # Chapters/Campaign
+    "CampaignManager",
+    "ChapterData",
+    "ChapterState",
+    "RealmProgress",
+    "CHAPTERS",
+    "CHAPTER_DIALOGUES",
+    "get_campaign_manager",
+    "reset_campaign",
 ]

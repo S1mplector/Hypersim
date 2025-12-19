@@ -148,171 +148,173 @@ class CombatIntegration:
         )
     
     def _build_encounter_tables(self) -> None:
-        """Build encounter tables for all realms."""
-        # 1D Realms
+        """Build encounter tables for all realms using only existing enemies."""
+        # 1D Realms - Existing enemies: point_spirit, line_walker, forward_sentinel, void_echo, toll_collector, segment_guardian
         self.encounter_tables["origin_point"] = EncounterTable(
             realm_id="origin_point",
             encounters=[("point_spirit", 0.7), ("line_walker", 0.3)],
-            base_encounter_rate=0.05,
+            base_encounter_rate=0.08,
         )
         self.encounter_tables["forward_path"] = EncounterTable(
             realm_id="forward_path",
             encounters=[
                 ("line_walker", 0.5),
-                ("forward_sentinel", 0.3),
-                ("momentum_keeper", 0.2),
+                ("forward_sentinel", 0.35),
+                ("point_spirit", 0.15),
             ],
             base_encounter_rate=0.12,
         )
         self.encounter_tables["backward_void"] = EncounterTable(
             realm_id="backward_void",
             encounters=[
-                ("void_echo", 0.5),
-                ("reverse_walker", 0.3),
-                ("negation_spirit", 0.2),
+                ("void_echo", 0.6),
+                ("line_walker", 0.25),
+                ("point_spirit", 0.15),
             ],
-            base_encounter_rate=0.15,
+            base_encounter_rate=0.12,
         )
         self.encounter_tables["midpoint_station"] = EncounterTable(
             realm_id="midpoint_station",
             encounters=[("toll_collector", 1.0)],
-            base_encounter_rate=0.03,  # Safe zone
+            base_encounter_rate=0.05,  # Safe zone
         )
         self.encounter_tables["the_endpoint"] = EncounterTable(
             realm_id="the_endpoint",
-            encounters=[("border_patrol", 0.7), ("segment_guardian", 0.3)],
+            encounters=[
+                ("forward_sentinel", 0.5),
+                ("line_walker", 0.3),
+                ("void_echo", 0.2),
+            ],
             base_encounter_rate=0.1,
             boss_id="segment_guardian",
         )
         
-        # 2D Realms
+        # 2D Realms - Existing: triangle_scout, square_citizen, circle_mystic, fractal_entity, membrane_warper
         self.encounter_tables["flatland_commons"] = EncounterTable(
             realm_id="flatland_commons",
             encounters=[
                 ("triangle_scout", 0.4),
-                ("square_citizen", 0.5),
-                ("hexagon_worker", 0.1),
+                ("square_citizen", 0.6),
             ],
-            base_encounter_rate=0.08,
+            base_encounter_rate=0.1,
         )
         self.encounter_tables["angular_heights"] = EncounterTable(
             realm_id="angular_heights",
             encounters=[
-                ("triangle_scout", 0.3),
-                ("isoceles_warrior", 0.3),
-                ("scalene_assassin", 0.2),
-                ("equilateral_champion", 0.2),
+                ("triangle_scout", 0.7),
+                ("square_citizen", 0.3),
             ],
-            base_encounter_rate=0.15,
-            boss_id="right_angle_king",
+            base_encounter_rate=0.12,
         )
         self.encounter_tables["curved_depths"] = EncounterTable(
             realm_id="curved_depths",
             encounters=[
-                ("circle_mystic", 0.5),
-                ("ellipse_sage", 0.3),
-                ("arc_phantom", 0.2),
+                ("circle_mystic", 0.8),
+                ("square_citizen", 0.2),
             ],
             base_encounter_rate=0.1,
         )
         self.encounter_tables["fractal_frontier"] = EncounterTable(
             realm_id="fractal_frontier",
             encounters=[
-                ("fractal_entity", 0.5),
-                ("irregular_terror", 0.3),
-                ("mandelbrot_spawn", 0.2),
+                ("fractal_entity", 0.6),
+                ("triangle_scout", 0.2),
+                ("circle_mystic", 0.2),
             ],
-            base_encounter_rate=0.18,
+            base_encounter_rate=0.15,
         )
         self.encounter_tables["dimensional_membrane"] = EncounterTable(
             realm_id="dimensional_membrane",
-            encounters=[("depth_horror", 0.6), ("membrane_warper", 0.4)],
+            encounters=[
+                ("fractal_entity", 0.4),
+                ("circle_mystic", 0.35),
+                ("triangle_scout", 0.25),
+            ],
             base_encounter_rate=0.12,
             boss_id="membrane_warper",
         )
         
-        # 3D Realms
+        # 3D Realms - Existing: cube_guard, sphere_wanderer, pyramid_sentinel, shadow_cube, crystal_guardian, hyperborder_sentinel
         self.encounter_tables["geometric_citadel"] = EncounterTable(
             realm_id="geometric_citadel",
             encounters=[
-                ("cube_guard", 0.4),
+                ("cube_guard", 0.5),
                 ("pyramid_sentinel", 0.3),
-                ("sphere_wanderer", 0.3),
+                ("sphere_wanderer", 0.2),
             ],
-            base_encounter_rate=0.08,
+            base_encounter_rate=0.1,
         )
         self.encounter_tables["platonic_plains"] = EncounterTable(
             realm_id="platonic_plains",
             encounters=[
-                ("wild_tetrahedron", 0.3),
-                ("roaming_octahedron", 0.3),
-                ("feral_icosahedron", 0.2),
-                ("sphere_wanderer", 0.2),
+                ("sphere_wanderer", 0.4),
+                ("cube_guard", 0.3),
+                ("pyramid_sentinel", 0.3),
             ],
             base_encounter_rate=0.12,
         )
         self.encounter_tables["cavern_of_shadows"] = EncounterTable(
             realm_id="cavern_of_shadows",
             encounters=[
-                ("shadow_cube", 0.4),
-                ("cave_sphere", 0.3),
-                ("darkness_tetrahedron", 0.3),
+                ("shadow_cube", 0.6),
+                ("cube_guard", 0.25),
+                ("sphere_wanderer", 0.15),
             ],
-            base_encounter_rate=0.15,
+            base_encounter_rate=0.12,
         )
         self.encounter_tables["crystalline_spires"] = EncounterTable(
             realm_id="crystalline_spires",
             encounters=[
-                ("crystal_guardian", 0.4),
-                ("prism_elemental", 0.3),
-                ("light_weaver", 0.3),
+                ("crystal_guardian", 0.5),
+                ("pyramid_sentinel", 0.3),
+                ("sphere_wanderer", 0.2),
             ],
             base_encounter_rate=0.1,
         )
         self.encounter_tables["hyperborder"] = EncounterTable(
             realm_id="hyperborder",
             encounters=[
-                ("tesseract_fragment", 0.4),
-                ("hypercube_shard", 0.3),
-                ("w_axis_phantom", 0.3),
+                ("crystal_guardian", 0.35),
+                ("shadow_cube", 0.35),
+                ("pyramid_sentinel", 0.3),
             ],
             base_encounter_rate=0.12,
-            boss_id="tesseract_guardian",
+            boss_id="hyperborder_sentinel",
         )
         
-        # 4D Realms
+        # 4D Realms - Existing: hypersphere_wanderer, memory_specter, tesseract_citizen, tesseract_guardian, threshold_guardian
         self.encounter_tables["hyperspace_nexus"] = EncounterTable(
             realm_id="hyperspace_nexus",
             encounters=[
-                ("tesseract_citizen", 0.4),
-                ("hypersphere_wanderer", 0.4),
-                ("ana_guardian", 0.2),
+                ("tesseract_citizen", 0.5),
+                ("hypersphere_wanderer", 0.5),
             ],
             base_encounter_rate=0.1,
         )
         self.encounter_tables["w_positive_reach"] = EncounterTable(
             realm_id="w_positive_reach",
             encounters=[
-                ("possibility_entity", 0.4),
-                ("future_echo", 0.3),
-                ("potential_guardian", 0.3),
+                ("tesseract_citizen", 0.5),
+                ("hypersphere_wanderer", 0.3),
+                ("memory_specter", 0.2),
             ],
             base_encounter_rate=0.12,
         )
         self.encounter_tables["w_negative_depths"] = EncounterTable(
             realm_id="w_negative_depths",
             encounters=[
-                ("memory_specter", 0.5),
-                ("regret_manifestation", 0.3),
-                ("past_self", 0.2),
+                ("memory_specter", 0.6),
+                ("hypersphere_wanderer", 0.25),
+                ("tesseract_citizen", 0.15),
             ],
-            base_encounter_rate=0.15,
+            base_encounter_rate=0.12,
         )
         self.encounter_tables["beyond_threshold"] = EncounterTable(
             realm_id="beyond_threshold",
             encounters=[
-                ("infinity_fragment", 0.6),
-                ("threshold_guardian", 0.4),
+                ("memory_specter", 0.4),
+                ("tesseract_citizen", 0.4),
+                ("hypersphere_wanderer", 0.2),
             ],
             base_encounter_rate=0.1,
             boss_id="threshold_guardian",

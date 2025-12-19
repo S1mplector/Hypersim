@@ -1,7 +1,7 @@
 """Main game loop integrating ECS, rendering, and session management."""
 from __future__ import annotations
 
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 import pygame
 import numpy as np
@@ -57,19 +57,35 @@ class GameLoop:
         session: "GameSession",
         width: int = 1024,
         height: int = 768,
-        title: str = "HyperSim"
+        title: str = "HyperSim",
+        screen: Optional[pygame.Surface] = None,
     ):
         self.session = session
-        self.width = width
-        self.height = height
         self.title = title
         
-        # Initialize pygame
-        pygame.init()
-        pygame.font.init()
-        self.screen = pygame.display.set_mode((width, height))
-        pygame.display.set_caption(title)
+        # Initialize pygame if needed
+        if not pygame.get_init():
+            pygame.init()
+        if not pygame.font.get_init():
+            pygame.font.init()
+        
+        # Use provided screen or create new one
+        if screen is not None:
+            self.screen = screen
+            self.width = screen.get_width()
+            self.height = screen.get_height()
+        else:
+            self.width = width
+            self.height = height
+            self.screen = pygame.display.set_mode((width, height))
+            pygame.display.set_caption(title)
+        
         self.clock = pygame.time.Clock()
+        
+        # Campaign/dialogue queues
+        self._initial_dialogue_id: Optional[str] = None
+        self._queued_dialogues: List[str] = []
+        self._initial_dialogue_played = False
         
         # Create world and systems
         self.world = World()
@@ -145,6 +161,10 @@ class GameLoop:
         self.combat: Optional[CombatIntegration] = None
         self._current_realm_id: Optional[str] = None
         self._steps_in_realm: int = 0
+        self._current_encounter_entity: Optional[Entity] = None
+        
+        # Input handler reference for launcher integration
+        self._input = self.input_handler
         
         # Wire up event handlers
         self._setup_event_handlers()
@@ -160,17 +180,32 @@ class GameLoop:
             if not entity_a or not entity_b:
                 return
             
-            # Player colliding with enemy
-            if entity_a.has_tag("player") and entity_b.has_tag("enemy"):
-                self.damage_system.queue_damage(entity_a.id, 10.0)
-            elif entity_b.has_tag("player") and entity_a.has_tag("enemy"):
-                self.damage_system.queue_damage(entity_b.id, 10.0)
+            # Determine which is player and which is other
+            player = None
+            other = None
+            if entity_a.has_tag("player"):
+                player = entity_a
+                other = entity_b
+            elif entity_b.has_tag("player"):
+                player = entity_b
+                other = entity_a
             
-            # Player colliding with pickup
-            if entity_a.has_tag("player") and entity_b.get(Pickup):
-                self._collect_pickup(entity_a, entity_b)
-            elif entity_b.has_tag("player") and entity_a.get(Pickup):
-                self._collect_pickup(entity_b, entity_a)
+            if player and other:
+                # Player colliding with encounter trigger - start combat!
+                if other.has_tag("encounter_trigger"):
+                    ai_brain = other.get(AIBrain)
+                    if ai_brain and ai_brain.state.get("enemy_id"):
+                        enemy_id = ai_brain.state["enemy_id"]
+                        self._trigger_encounter(enemy_id, other)
+                        return  # Don't deal damage if starting combat
+                
+                # Player colliding with regular enemy (no encounter system)
+                if other.has_tag("enemy") and not other.has_tag("encounter_trigger"):
+                    self.damage_system.queue_damage(player.id, 10.0)
+                
+                # Player colliding with pickup
+                if other.get(Pickup):
+                    self._collect_pickup(player, other)
         
         def on_interact(event):
             player = self.world.get(event.source_entity_id)
@@ -334,32 +369,130 @@ class GameLoop:
         return player
     
     def _spawn_1d_level(self) -> None:
-        """Spawn a basic 1D tutorial level."""
-        # Set world bounds
+        """Spawn a 1D level with diverse entities representing different realms.
+        
+        The Line is divided into realms:
+        - Origin Point (-10 to 0): Safe starting area with Point Spirits
+        - Forward Path (0 to 20): Forward Sentinels patrol here
+        - Backward Void (-40 to -10): Void Echoes dwell here
+        - Midpoint Station (20): Toll Collector (friendly NPC area)
+        - The Endpoint (30 to 45): Boss area with Segment Guardian
+        """
+        # Set world bounds - The Line stretches from -45 to +45
         self.physics_system.set_bounds("1d", 0, -45.0, 45.0)
         
         # Spawn player at origin
         self._spawn_player("1d", np.array([0.0, 0.0, 0.0, 0.0]))
         
-        # Spawn some enemies
-        enemy_positions = [-15.0, 10.0, 25.0]
-        for i, x in enumerate(enemy_positions):
-            enemy = Entity(id=f"enemy_{i}")
-            enemy.add(Transform(position=np.array([x, 0.0, 0.0, 0.0])))
-            enemy.add(Velocity())
-            enemy.add(Renderable(color=(200, 50, 50)))
-            enemy.add(Collider(shape=ColliderShape.SEGMENT, size=np.array([0.8])))
-            enemy.add(Health(current=30, max=30))
-            enemy.add(AIBrain(
-                behavior="oscillate",
-                state={"center": x, "amplitude": 3.0, "speed": 2.0, "direction": 1}
-            ))
-            enemy.add(DimensionAnchor(dimension_id="1d"))
-            enemy.tag("enemy")
-            self.world.spawn(enemy)
+        # Set starting realm
+        self._current_realm_id = "origin_point"
         
-        # Spawn pickups
-        pickup_positions = [-8.0, 5.0, 18.0]
+        # === ORIGIN POINT REALM (-10 to 0) ===
+        # Point Spirits - gentle, timid beings (yellow-white glow)
+        point_spirit_positions = [-5.0, -8.0]
+        for i, x in enumerate(point_spirit_positions):
+            spirit = Entity(id=f"point_spirit_{i}")
+            spirit.add(Transform(position=np.array([x, 0.0, 0.0, 0.0])))
+            spirit.add(Velocity())
+            spirit.add(Renderable(color=(255, 255, 200)))  # Pale yellow glow
+            spirit.add(Collider(shape=ColliderShape.SEGMENT, size=np.array([0.4]), is_trigger=True))
+            spirit.add(Health(current=8, max=8))
+            spirit.add(AIBrain(
+                behavior="oscillate",
+                state={"center": x, "amplitude": 1.0, "speed": 0.5, "direction": 1,
+                       "enemy_id": "point_spirit", "realm": "origin_point"}
+            ))
+            spirit.add(DimensionAnchor(dimension_id="1d"))
+            spirit.tag("encounter_trigger", "point_spirit")
+            self.world.spawn(spirit)
+        
+        # === FORWARD PATH REALM (5 to 20) ===
+        # Line Walkers - confused but not hostile (blue)
+        line_walker = Entity(id="line_walker_0")
+        line_walker.add(Transform(position=np.array([8.0, 0.0, 0.0, 0.0])))
+        line_walker.add(Velocity())
+        line_walker.add(Renderable(color=(100, 200, 255)))  # Blue
+        line_walker.add(Collider(shape=ColliderShape.SEGMENT, size=np.array([0.6]), is_trigger=True))
+        line_walker.add(Health(current=15, max=15))
+        line_walker.add(AIBrain(
+            behavior="oscillate",
+            state={"center": 8.0, "amplitude": 4.0, "speed": 2.0, "direction": 1,
+                   "enemy_id": "line_walker", "realm": "forward_path"}
+        ))
+        line_walker.add(DimensionAnchor(dimension_id="1d"))
+        line_walker.tag("encounter_trigger", "line_walker")
+        self.world.spawn(line_walker)
+        
+        # Forward Sentinel - aggressive guardian (red)
+        sentinel = Entity(id="forward_sentinel_0")
+        sentinel.add(Transform(position=np.array([15.0, 0.0, 0.0, 0.0])))
+        sentinel.add(Velocity())
+        sentinel.add(Renderable(color=(255, 100, 100)))  # Red
+        sentinel.add(Collider(shape=ColliderShape.SEGMENT, size=np.array([0.8]), is_trigger=True))
+        sentinel.add(Health(current=25, max=25))
+        sentinel.add(AIBrain(
+            behavior="oscillate",
+            state={"center": 15.0, "amplitude": 5.0, "speed": 3.0, "direction": 1,
+                   "enemy_id": "forward_sentinel", "realm": "forward_path"}
+        ))
+        sentinel.add(DimensionAnchor(dimension_id="1d"))
+        sentinel.tag("encounter_trigger", "forward_sentinel")
+        self.world.spawn(sentinel)
+        
+        # === BACKWARD VOID REALM (-40 to -10) ===
+        # Void Echoes - philosophical beings from the void (dark purple)
+        void_echo_positions = [-20.0, -30.0]
+        for i, x in enumerate(void_echo_positions):
+            echo = Entity(id=f"void_echo_{i}")
+            echo.add(Transform(position=np.array([x, 0.0, 0.0, 0.0])))
+            echo.add(Velocity())
+            echo.add(Renderable(color=(80, 80, 120)))  # Dark purple
+            echo.add(Collider(shape=ColliderShape.SEGMENT, size=np.array([0.7]), is_trigger=True))
+            echo.add(Health(current=20, max=20))
+            echo.add(AIBrain(
+                behavior="oscillate",
+                state={"center": x, "amplitude": 2.0, "speed": 1.0, "direction": -1,
+                       "enemy_id": "void_echo", "realm": "backward_void"}
+            ))
+            echo.add(DimensionAnchor(dimension_id="1d"))
+            echo.tag("encounter_trigger", "void_echo")
+            self.world.spawn(echo)
+        
+        # === MIDPOINT STATION (around x=22) ===
+        # Toll Collector - playful gatekeeper (gold)
+        toll_collector = Entity(id="toll_collector_0")
+        toll_collector.add(Transform(position=np.array([22.0, 0.0, 0.0, 0.0])))
+        toll_collector.add(Velocity())
+        toll_collector.add(Renderable(color=(200, 180, 100)))  # Gold
+        toll_collector.add(Collider(shape=ColliderShape.SEGMENT, size=np.array([0.6]), is_trigger=True))
+        toll_collector.add(Health(current=18, max=18))
+        toll_collector.add(AIBrain(
+            behavior="stationary",
+            state={"enemy_id": "toll_collector", "realm": "midpoint_station"}
+        ))
+        toll_collector.add(DimensionAnchor(dimension_id="1d"))
+        toll_collector.tag("encounter_trigger", "toll_collector")
+        self.world.spawn(toll_collector)
+        
+        # === THE ENDPOINT (30 to 45) ===
+        # Segment Guardian - BOSS (orange-gold, larger)
+        guardian = Entity(id="segment_guardian")
+        guardian.add(Transform(position=np.array([35.0, 0.0, 0.0, 0.0])))
+        guardian.add(Velocity())
+        guardian.add(Renderable(color=(255, 200, 100)))  # Orange-gold
+        guardian.add(Collider(shape=ColliderShape.SEGMENT, size=np.array([1.2]), is_trigger=True))
+        guardian.add(Health(current=40, max=40))
+        guardian.add(AIBrain(
+            behavior="oscillate",
+            state={"center": 35.0, "amplitude": 3.0, "speed": 1.5, "direction": 1,
+                   "enemy_id": "segment_guardian", "realm": "the_endpoint", "is_boss": True}
+        ))
+        guardian.add(DimensionAnchor(dimension_id="1d"))
+        guardian.tag("encounter_trigger", "segment_guardian", "boss")
+        self.world.spawn(guardian)
+        
+        # === PICKUPS (energy orbs) ===
+        pickup_positions = [-3.0, 5.0, 12.0, 25.0]
         for i, x in enumerate(pickup_positions):
             pickup = Entity(id=f"pickup_{i}")
             pickup.add(Transform(position=np.array([x, 0.0, 0.0, 0.0])))
@@ -370,9 +503,25 @@ class GameLoop:
             pickup.tag("pickup")
             self.world.spawn(pickup)
         
-        # Spawn portal to 2D at the end
+        # === REALM MARKERS (visual indicators) ===
+        # These are non-collidable visual markers showing realm boundaries
+        realm_markers = [
+            (-10.0, (60, 60, 80)),   # Origin->Backward Void boundary
+            (5.0, (60, 80, 100)),    # Origin->Forward Path boundary  
+            (20.0, (80, 70, 50)),    # Forward Path->Midpoint boundary
+            (30.0, (100, 80, 60)),   # Midpoint->Endpoint boundary
+        ]
+        for i, (x, color) in enumerate(realm_markers):
+            marker = Entity(id=f"realm_marker_{i}")
+            marker.add(Transform(position=np.array([x, 0.0, 0.0, 0.0])))
+            marker.add(Renderable(color=color))
+            marker.add(DimensionAnchor(dimension_id="1d"))
+            marker.tag("marker")
+            self.world.spawn(marker)
+        
+        # === PORTAL TO 2D (after defeating boss) ===
         portal = Entity(id="portal_2d")
-        portal.add(Transform(position=np.array([40.0, 0.0, 0.0, 0.0])))
+        portal.add(Transform(position=np.array([42.0, 0.0, 0.0, 0.0])))
         portal.add(Renderable(color=(150, 50, 255)))
         portal.add(Collider(shape=ColliderShape.SEGMENT, size=np.array([1.0]), is_trigger=True))
         portal.add(Portal(target_dimension="2d", active=True))
@@ -583,6 +732,11 @@ class GameLoop:
         # Initialize first dimension
         self._reload_dimension()
         
+        # Play initial campaign dialogue if set
+        if self._initial_dialogue_id and not self._initial_dialogue_played:
+            self._initial_dialogue_played = True
+            self.dialogue.start_sequence(self._initial_dialogue_id)
+        
         while self.running:
             dt = self.clock.tick(self.target_fps) / 1000.0
             
@@ -610,6 +764,11 @@ class GameLoop:
             # Update dialogue and overlays (always)
             self.dialogue.update(dt)
             self.overlays.update(dt)
+            
+            # Check for queued dialogues when current one finishes
+            if not self.dialogue.is_active and self._queued_dialogues:
+                next_dialogue = self._queued_dialogues.pop(0)
+                self.dialogue.start_sequence(next_dialogue)
             
             # Render
             self._render()
@@ -678,6 +837,59 @@ class GameLoop:
             self.audio.play("encounter")
             self.overlays.notify("⚔️ ENCOUNTER!", duration=1.5, color=(255, 100, 100))
     
+    def _trigger_encounter(self, enemy_id: str, entity: Entity) -> None:
+        """Trigger a combat encounter from touching an entity in the world.
+        
+        Args:
+            enemy_id: The combat enemy ID to fight
+            entity: The world entity that triggered the encounter
+        """
+        if not self.combat or self.combat.in_combat:
+            return
+        
+        # Don't re-trigger recently fought entities
+        if hasattr(entity, '_encounter_cooldown') and entity._encounter_cooldown > 0:
+            return
+        
+        # Get enemy info from AI brain
+        ai_brain = entity.get(AIBrain)
+        is_boss = ai_brain.state.get("is_boss", False) if ai_brain else False
+        realm = ai_brain.state.get("realm", self._current_realm_id) if ai_brain else self._current_realm_id
+        
+        # Update current realm based on entity
+        if realm:
+            self._current_realm_id = realm
+        
+        # Release mouse capture for combat
+        if self._mouse_captured:
+            self._set_mouse_capture(False)
+        
+        # Start the combat encounter
+        from hypersim.game.combat import EncounterConfig, EncounterType
+        
+        config = EncounterConfig(
+            enemy_id=enemy_id,
+            encounter_type=EncounterType.BOSS if is_boss else EncounterType.RANDOM,
+            can_flee=not is_boss,
+        )
+        
+        if self.combat.start_encounter(config):
+            # Store reference to world entity for post-combat handling
+            self._current_encounter_entity = entity
+            
+            # Play encounter sound and show notification
+            self.audio.play("encounter")
+            
+            # Get enemy name for notification
+            from hypersim.game.combat.enemies import get_enemy
+            enemy = get_enemy(enemy_id)
+            enemy_name = enemy.name if enemy else enemy_id.replace("_", " ").title()
+            
+            if is_boss:
+                self.overlays.notify(f"⚔️ BOSS: {enemy_name}!", duration=2.0, color=(255, 50, 50))
+            else:
+                self.overlays.notify(f"⚔️ {enemy_name} appears!", duration=1.5, color=(255, 100, 100))
+    
     def _on_combat_end(self, result: CombatResult, xp: int, gold: int, enemy_id: str = "") -> None:
         """Handle combat ending."""
         # Update session
@@ -701,6 +913,36 @@ class GameLoop:
             # Respawn player with reduced HP
             if self.combat:
                 self.combat.player_stats.hp = self.combat.player_stats.max_hp // 2
+        
+        # Handle the world entity that triggered the encounter
+        if hasattr(self, '_current_encounter_entity') and self._current_encounter_entity:
+            entity = self._current_encounter_entity
+            if result == CombatResult.VICTORY:
+                # Remove defeated enemy from world
+                entity.active = False
+                self.world.despawn(entity.id)
+            elif result == CombatResult.SPARE:
+                # Spared enemies become friendly (remove encounter trigger)
+                entity.remove_tag("encounter_trigger")
+                entity.tag("friendly")
+                # Change color to indicate friendliness
+                renderable = entity.get(Renderable)
+                if renderable:
+                    renderable.color = (100, 255, 150)  # Greenish
+            elif result == CombatResult.FLEE:
+                # Move player away from enemy to prevent immediate re-encounter
+                player = self.world.get("player")
+                if player:
+                    player_transform = player.get(Transform)
+                    entity_transform = entity.get(Transform)
+                    if player_transform and entity_transform:
+                        # Move player 5 units away in opposite direction
+                        diff = player_transform.position - entity_transform.position
+                        if np.linalg.norm(diff) > 0:
+                            diff = diff / np.linalg.norm(diff) * 5.0
+                            player_transform.position = player_transform.position + diff
+            
+            self._current_encounter_entity = None
         
         # Check current route and notify player of major shifts
         route = self.story.get_current_route()
