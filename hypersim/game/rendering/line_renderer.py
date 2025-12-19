@@ -7,9 +7,10 @@ import pygame
 import numpy as np
 
 from .base_renderer import DimensionRenderer
+from .particles_1d import ParticleSystem1D, ParticleType, get_particle_type_for_entity
 from hypersim.game.ecs.component import (
     Transform, Renderable, Collider, ColliderShape, 
-    Health, DimensionAnchor, Pickup, Portal
+    Health, DimensionAnchor, Pickup, Portal, AIBrain
 )
 
 if TYPE_CHECKING:
@@ -31,10 +32,21 @@ class LineRenderer(DimensionRenderer):
         self.line_height = 80  # Height of the visible line strip
         self.visibility_radius = 15.0  # How far the player can see (in world units)
         self.fog_enabled = True
+        
+        # Particle system for entity effects
+        self.particle_system = ParticleSystem1D(screen, self.line_y)
+        self._last_dt = 1/60  # Default delta time
+        
+        # Healing mechanic state
+        self._healing_check_timer = 0.0
+        self._healing_check_interval = 0.5  # Check every 0.5 seconds
     
     def render(self, world: "World", dimension_spec: Optional["DimensionSpec"] = None) -> None:
         """Render the 1D world."""
         self.clear()
+        
+        # Update particle system
+        self.particle_system.update(self._last_dt)
         
         # Draw the line background
         self._draw_line_background()
@@ -42,12 +54,14 @@ class LineRenderer(DimensionRenderer):
         # Get player for visibility calculations
         player = world.find_player()
         player_x = 0.0
+        player_screen_x = self.width // 2
         if player:
             transform = player.get(Transform)
             if transform:
                 player_x = transform.position[0]
                 # Update camera to follow player
                 self.camera_offset[0] = player_x
+                player_screen_x = self.world_to_screen(player_x, 0)[0]
         
         # Get all entities in 1D dimension
         entities = world.in_dimension("1d")
@@ -58,14 +72,99 @@ class LineRenderer(DimensionRenderer):
             return t.position[0] if t else 0
         entities.sort(key=get_x)
         
-        # Render entities
+        # Check for First Point healing
+        self._check_healing(world, player, player_x, player_screen_x)
+        
+        # Draw particles behind entities
+        self.particle_system.draw()
+        
+        # Render entities and update their particle emitters
         for entity in entities:
             if not entity.active:
                 continue
             self._render_entity(entity, player_x)
+            self._update_entity_particles(entity, player_x)
         
         # Draw UI overlay
         self._draw_ui(world, player)
+    
+    def set_delta_time(self, dt: float) -> None:
+        """Set the delta time for particle updates."""
+        self._last_dt = dt
+    
+    def _check_healing(self, world: "World", player: Optional["Entity"], player_x: float, player_screen_x: int) -> None:
+        """Check if player needs healing from the First Point."""
+        if not player:
+            return
+        
+        self._healing_check_timer += self._last_dt
+        if self._healing_check_timer < self._healing_check_interval:
+            return
+        self._healing_check_timer = 0.0
+        
+        # Check player health
+        player_health = player.get(Health)
+        if not player_health or player_health.current >= player_health.max:
+            return
+        
+        # Find the First Point
+        first_point = world.get("the_first_point")
+        if not first_point or not first_point.active:
+            return
+        
+        fp_transform = first_point.get(Transform)
+        if not fp_transform:
+            return
+        
+        # Check distance (must be close for healing)
+        distance = abs(player_x - fp_transform.position[0])
+        if distance > 5.0:  # Must be within 5 units
+            return
+        
+        # Trigger healing particles
+        fp_screen_x = self.world_to_screen(fp_transform.position[0], 0)[0]
+        if self.particle_system.trigger_healing("the_first_point", player_screen_x, 12):
+            # Actually heal the player
+            heal_amount = min(5, player_health.max - player_health.current)
+            player_health.current += heal_amount
+    
+    def _update_entity_particles(self, entity: "Entity", player_x: float) -> None:
+        """Update or create particle emitter for an entity."""
+        # Skip player - they don't need ambient particles
+        if entity.has_tag("player"):
+            return
+        
+        # Skip pickups and portals
+        if entity.get(Pickup) or entity.get(Portal):
+            return
+        
+        transform = entity.get(Transform)
+        if not transform:
+            return
+        
+        screen_x = self.world_to_screen(transform.position[0], 0)[0]
+        
+        # Skip if off screen
+        if screen_x < -100 or screen_x > self.width + 100:
+            return
+        
+        # Get particle type for this entity
+        particle_type = get_particle_type_for_entity(entity)
+        
+        # Get color from renderable
+        renderable = entity.get(Renderable)
+        color = renderable.color if renderable else (255, 255, 255)
+        
+        # Get or create emitter
+        emitter = self.particle_system.get_or_create_emitter(
+            entity.id,
+            particle_type,
+            screen_x,
+            color,
+        )
+        
+        # Update position
+        self.particle_system.update_emitter_position(entity.id, screen_x)
     
     def _draw_line_background(self) -> None:
         """Draw the line/track background."""

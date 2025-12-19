@@ -1019,17 +1019,35 @@ class GameLoop:
     
     def _start_combat_encounter(self, enemy_id: str) -> None:
         """Start a combat encounter with the given enemy."""
-        if not self.combat:
-            return
-        
         # Release mouse capture for combat
         if self._mouse_captured:
             self._set_mouse_capture(False)
         
-        # Start encounter
-        if self.combat.start_random_encounter(enemy_id):
-            self.audio.play("encounter")
-            self.overlays.notify("⚔️ ENCOUNTER!", duration=1.5, color=(255, 100, 100))
+        # Get enemy to determine dimension
+        from hypersim.game.combat.enemies import get_enemy
+        enemy = get_enemy(enemy_id)
+        enemy_name = enemy.name if enemy else enemy_id.replace("_", " ").title()
+        enemy_dimension = getattr(enemy, 'dimension', '2d') if enemy else '2d'
+        
+        # Use dimensional combat for non-2D enemies
+        if self._use_dimensional_combat and self.dimensional_combat and enemy_dimension != '2d':
+            config = DimensionalEncounterConfig(
+                enemy_id=enemy_id,
+                dimension=CombatDimension.ONE_D if enemy_dimension == '1d' else (
+                    CombatDimension.THREE_D if enemy_dimension == '3d' else CombatDimension.FOUR_D
+                ),
+                can_flee=True,
+                is_boss=getattr(enemy, 'is_boss', False) if enemy else False,
+            )
+            
+            if self.dimensional_combat.start_encounter(config):
+                self.audio.play("encounter")
+                self.overlays.notify(f"⚔️ {enemy_name} appears!", duration=1.5, color=(255, 100, 100))
+        elif self.combat:
+            # Use old combat system for 2D
+            if self.combat.start_random_encounter(enemy_id):
+                self.audio.play("encounter")
+                self.overlays.notify("⚔️ ENCOUNTER!", duration=1.5, color=(255, 100, 100))
     
     def _trigger_encounter(self, enemy_id: str, entity: Entity) -> None:
         """Trigger a combat encounter from touching an entity in the world.
@@ -1062,14 +1080,18 @@ class GameLoop:
         if self._mouse_captured:
             self._set_mouse_capture(False)
         
-        # Get enemy to determine dimension
+        # Determine dimension from entity's anchor first, then enemy definition
+        entity_anchor = entity.get(DimensionAnchor)
+        entity_dimension = entity_anchor.dimension_id if entity_anchor else None
+        
+        # Get enemy to determine dimension (fallback)
         from hypersim.game.combat.enemies import get_enemy
         enemy = get_enemy(enemy_id)
         enemy_name = enemy.name if enemy else enemy_id.replace("_", " ").title()
-        enemy_dimension = getattr(enemy, 'dimension', '2d') if enemy else '2d'
+        enemy_dimension = entity_dimension or (getattr(enemy, 'dimension', '2d') if enemy else '2d')
         
-        # Use NEW dimensional combat for 1D, 3D, 4D enemies
-        if self._use_dimensional_combat and self.dimensional_combat and enemy_dimension in ('1d', '3d', '4d'):
+        # Use NEW dimensional combat for 1D, 3D, 4D enemies (always use for non-2D)
+        if self._use_dimensional_combat and self.dimensional_combat and enemy_dimension != '2d':
             config = DimensionalEncounterConfig(
                 enemy_id=enemy_id,
                 dimension=CombatDimension.ONE_D if enemy_dimension == '1d' else (
@@ -1319,6 +1341,10 @@ class GameLoop:
         
         dim_id = self.session.active_dimension.id
         renderer = self._renderers.get(dim_id)
+        
+        # Pass delta time to LineRenderer for particle updates
+        if dim_id == "1d" and hasattr(renderer, 'set_delta_time'):
+            renderer.set_delta_time(self.clock.get_time() / 1000.0)
         
         # Update camera orientation for 3D/4D renderers from controllers
         if dim_id == "3d" and hasattr(renderer, 'set_camera_orientation'):

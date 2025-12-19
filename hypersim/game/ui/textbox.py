@@ -9,6 +9,7 @@ Features:
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Dict, List, Optional, Tuple
@@ -363,14 +364,20 @@ class TextBox:
                 self.screen.blit(choice_surface, (box_x + padding + 20, y_offset))
                 y_offset += 30
         
-        # Draw input hint
+        # Draw VN-style continue indicator (triangle at right edge)
         if self.waiting_for_input and not self.current_line.choices:
-            hint_color = tuple(int(c * self.fade_alpha * 0.6) for c in style["text_color"])
-            blink = int(pygame.time.get_ticks() / 500) % 2 == 0
-            if blink:
-                hint_text = font_hint.render("▼ Press SPACE or ENTER to continue", True, hint_color)
-                hint_rect = hint_text.get_rect(center=(box_x + box_width // 2, box_y + box_height - 15))
-                self.screen.blit(hint_text, hint_rect)
+            hint_color = tuple(int(c * self.fade_alpha * 0.8) for c in style["text_color"])
+            # Animate triangle with gentle bob
+            bob_offset = int(math.sin(pygame.time.get_ticks() / 200) * 3)
+            triangle_x = box_x + box_width - padding - 10
+            triangle_y = box_y + box_height - 18 + bob_offset
+            # Draw downward-facing triangle
+            triangle_points = [
+                (triangle_x - 6, triangle_y),
+                (triangle_x + 6, triangle_y),
+                (triangle_x, triangle_y + 8),
+            ]
+            pygame.draw.polygon(self.screen, hint_color, triangle_points)
     
     def _wrap_text(self, text: str, font: pygame.font.Font, max_width: int) -> List[str]:
         """Wrap text to fit within max_width."""

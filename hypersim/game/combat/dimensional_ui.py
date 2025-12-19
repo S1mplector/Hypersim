@@ -156,6 +156,12 @@ class DimensionalCombatUI:
         self.menu_animation_timer = 0.0
         self.dialogue_char_index = 0.0
         
+        # Enemy preview animation state
+        self._enemy_preview_time = 0.0
+        self._enemy_particles: List[Dict] = []  # Dynamic particles around enemy
+        self._enemy_oscillation = 0.0  # For movement animation
+        self._last_enemy_id: Optional[str] = None
+        
         # Dimension colors
         self.dimension_colors = {
             CombatDimension.ONE_D: (100, 200, 255),
@@ -208,6 +214,9 @@ class DimensionalCombatUI:
         
         # Update menu animation
         self.menu_animation_timer += dt
+        
+        # Update enemy preview animation
+        self._enemy_preview_time += dt
         
         # Age combat log entries
         self.combat_log = [(msg, age + dt) for msg, age in self.combat_log if age < 5.0]
@@ -644,15 +653,13 @@ class DimensionalCombatUI:
         if not enemy_color:
             enemy_color = (255, 255, 255)
         
+        # Get enemy ID for tracking
+        enemy_id = getattr(enemy, 'id', None)
+        
         # Draw dimension-appropriate preview
         if dimension == CombatDimension.ONE_D:
-            # 1D enemy = point/dot with glow
-            pygame.draw.circle(screen, (50, 50, 80), (cx, preview_y + 30), 25)
-            pygame.draw.circle(screen, enemy_color, (cx, preview_y + 30), 12)
-            pygame.draw.circle(screen, (255, 255, 255), (cx, preview_y + 30), 6)
-            # Label
-            label = self.font_small.render("◆ POINT ENTITY", True, (100, 150, 200))
-            screen.blit(label, (cx - label.get_width() // 2, preview_y + 55))
+            # Animated 1D enemy with particles and motion
+            self._draw_1d_enemy_animated(screen, cx, preview_y, enemy_color, enemy_id)
             
         elif dimension == CombatDimension.TWO_D:
             # 2D enemy = flat shape
@@ -697,6 +704,180 @@ class DimensionalCombatUI:
                 pygame.draw.line(screen, (150, 100, 200),
                                (cx + dx * size//2, preview_y + 25 + (size//2 if dy > 0 else 0)),
                                (cx + dx * size, preview_y + 15 + (size * 2 if dy > 0 else 0)), 1)
+    
+    def _draw_1d_enemy_animated(self, screen: pygame.Surface, cx: int, y: int,
+                                 enemy_color: Tuple[int, int, int], enemy_id: Optional[str]) -> None:
+        """Draw animated 1D enemy with particles and motion."""
+        import random
+        
+        # Reset particles when enemy changes
+        if enemy_id != self._last_enemy_id:
+            self._enemy_particles = []
+            self._last_enemy_id = enemy_id
+        
+        # Calculate oscillation motion
+        osc_x = math.sin(self._enemy_preview_time * 1.5) * 8
+        osc_y = math.sin(self._enemy_preview_time * 2.3) * 4
+        
+        # Enemy position with motion
+        enemy_x = cx + osc_x
+        enemy_y = y + 30 + osc_y
+        
+        # Spawn new particles occasionally
+        if random.random() < 0.15:
+            # Determine particle type based on enemy color
+            is_aggressive = enemy_color[0] > 200 and enemy_color[1] < 150  # Red-ish
+            is_calm = enemy_color[1] > 200 or enemy_color[2] > 200  # Blue/green-ish
+            
+            if is_aggressive:
+                # Aggressive particles - spikes shooting outward
+                angle = random.uniform(0, 2 * math.pi)
+                speed = random.uniform(40, 80)
+                self._enemy_particles.append({
+                    'x': enemy_x,
+                    'y': enemy_y,
+                    'vx': math.cos(angle) * speed,
+                    'vy': math.sin(angle) * speed,
+                    'life': random.uniform(0.3, 0.6),
+                    'max_life': 0.6,
+                    'size': random.uniform(2, 5),
+                    'color': enemy_color,
+                    'type': 'spike',
+                })
+            elif is_calm:
+                # Calm particles - gentle floating
+                angle = random.uniform(0, 2 * math.pi)
+                dist = random.uniform(20, 40)
+                self._enemy_particles.append({
+                    'x': enemy_x + math.cos(angle) * dist,
+                    'y': enemy_y + math.sin(angle) * dist,
+                    'vx': random.uniform(-10, 10),
+                    'vy': random.uniform(-20, -5),
+                    'life': random.uniform(1.0, 2.0),
+                    'max_life': 2.0,
+                    'size': random.uniform(2, 4),
+                    'color': enemy_color,
+                    'type': 'wisp',
+                    'phase': random.uniform(0, 2 * math.pi),
+                })
+            else:
+                # Default particles - orbiting
+                angle = random.uniform(0, 2 * math.pi)
+                self._enemy_particles.append({
+                    'x': enemy_x,
+                    'y': enemy_y,
+                    'angle': angle,
+                    'radius': random.uniform(25, 45),
+                    'speed': random.uniform(1.5, 3.0),
+                    'life': random.uniform(1.5, 2.5),
+                    'max_life': 2.5,
+                    'size': random.uniform(2, 4),
+                    'color': enemy_color,
+                    'type': 'orbit',
+                })
+        
+        # Update and draw particles
+        dt = 1/60  # Approximate dt
+        particles_to_remove = []
+        
+        for i, p in enumerate(self._enemy_particles):
+            p['life'] -= dt
+            if p['life'] <= 0:
+                particles_to_remove.append(i)
+                continue
+            
+            alpha = int(255 * (p['life'] / p['max_life']))
+            size = int(p['size'])
+            
+            if p['type'] == 'spike':
+                # Accelerate outward
+                p['x'] += p['vx'] * dt
+                p['y'] += p['vy'] * dt
+                p['vx'] *= 1.02
+                p['vy'] *= 1.02
+                
+                # Draw spike
+                end_x = p['x'] + p['vx'] * 0.05
+                end_y = p['y'] + p['vy'] * 0.05
+                color = (*p['color'], alpha)
+                
+                surf = pygame.Surface((abs(int(end_x - p['x'])) + 10, abs(int(end_y - p['y'])) + 10), pygame.SRCALPHA)
+                pygame.draw.line(surf, color, (5, 5), (int(end_x - p['x']) + 5, int(end_y - p['y']) + 5), max(1, size))
+                screen.blit(surf, (int(p['x']) - 5, int(p['y']) - 5))
+                
+            elif p['type'] == 'wisp':
+                # Float with oscillation
+                p['phase'] = p.get('phase', 0) + dt * 3
+                p['x'] += p['vx'] * dt + math.sin(p['phase']) * 0.3
+                p['y'] += p['vy'] * dt
+                
+                # Draw glowing wisp
+                glow_size = size * 2
+                color = (*p['color'], int(alpha * 0.4))
+                glow_surf = pygame.Surface((glow_size * 2, glow_size * 2), pygame.SRCALPHA)
+                pygame.draw.circle(glow_surf, color, (glow_size, glow_size), glow_size)
+                screen.blit(glow_surf, (int(p['x']) - glow_size, int(p['y']) - glow_size))
+                
+                core_color = (*p['color'], alpha)
+                core_surf = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
+                pygame.draw.circle(core_surf, core_color, (size, size), size)
+                screen.blit(core_surf, (int(p['x']) - size, int(p['y']) - size))
+                
+            elif p['type'] == 'orbit':
+                # Orbit around enemy
+                p['angle'] += p['speed'] * dt
+                p['x'] = enemy_x + math.cos(p['angle']) * p['radius']
+                p['y'] = enemy_y + math.sin(p['angle']) * p['radius'] * 0.6  # Elliptical
+                
+                # Draw orbiting particle
+                color = (*p['color'], alpha)
+                surf = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
+                pygame.draw.circle(surf, color, (size, size), size)
+                screen.blit(surf, (int(p['x']) - size, int(p['y']) - size))
+        
+        # Remove dead particles
+        for i in reversed(particles_to_remove):
+            if i < len(self._enemy_particles):
+                self._enemy_particles.pop(i)
+        
+        # Limit particles
+        if len(self._enemy_particles) > 30:
+            self._enemy_particles = self._enemy_particles[-30:]
+        
+        # Draw the main enemy point with pulsing glow
+        pulse = 0.8 + 0.2 * math.sin(self._enemy_preview_time * 4)
+        glow_radius = int(30 * pulse)
+        
+        # Outer glow layers
+        for i in range(4):
+            layer_radius = glow_radius - i * 5
+            if layer_radius > 0:
+                alpha = int(50 * (1 - i * 0.2))
+                glow_color = (*enemy_color, alpha)
+                glow_surf = pygame.Surface((layer_radius * 2, layer_radius * 2), pygame.SRCALPHA)
+                pygame.draw.circle(glow_surf, glow_color, (layer_radius, layer_radius), layer_radius)
+                screen.blit(glow_surf, (int(enemy_x) - layer_radius, int(enemy_y) - layer_radius))
+        
+        # Dark core background
+        pygame.draw.circle(screen, (30, 30, 50), (int(enemy_x), int(enemy_y)), 15)
+        
+        # Main colored circle
+        pygame.draw.circle(screen, enemy_color, (int(enemy_x), int(enemy_y)), 12)
+        
+        # Bright center
+        pygame.draw.circle(screen, (255, 255, 255), (int(enemy_x), int(enemy_y)), 5)
+        
+        # Sparkle effect
+        if random.random() < 0.1:
+            sparkle_angle = random.uniform(0, 2 * math.pi)
+            sparkle_dist = random.uniform(8, 15)
+            sparkle_x = int(enemy_x + math.cos(sparkle_angle) * sparkle_dist)
+            sparkle_y = int(enemy_y + math.sin(sparkle_angle) * sparkle_dist)
+            pygame.draw.circle(screen, (255, 255, 255), (sparkle_x, sparkle_y), 2)
+        
+        # Label with dimension indicator
+        label = self.font_small.render("◆ POINT ENTITY", True, (100, 150, 200))
+        screen.blit(label, (cx - label.get_width() // 2, y + 60))
     
     def _get_shift_options(self, dimension: CombatDimension, 
                            rules: DimensionalCombatRules) -> List[Tuple[str, str, int, bool]]:
