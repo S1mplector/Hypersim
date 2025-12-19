@@ -35,6 +35,8 @@ from .perception_system import (
     PerceptionController, PerceptionHUD, DimensionalResonance,
     ResonanceMeter, RESONANCE_ACTIONS
 )
+from .combat_effects import CombatEffectsManager, get_effects_manager
+from .dimensional_enemy_ai import DimensionalEnemyAI, get_enemy_ai, PerceptionAttackType
 
 
 @dataclass
@@ -230,6 +232,12 @@ class DimensionalBattleSystem:
         self.grazed_bullets: set = set()
         self.graze_distance = 25.0
         
+        # Effects manager
+        self.effects = get_effects_manager()
+        
+        # Enemy AI
+        self.enemy_ai: Optional[DimensionalEnemyAI] = None
+        
         # Callbacks
         self.on_battle_end: Optional[Callable[[CombatResult, int, int], None]] = None
     
@@ -259,6 +267,10 @@ class DimensionalBattleSystem:
         
         # Reset resonance
         self.resonance = DimensionalResonance()
+        
+        # Initialize enemy AI
+        self.enemy_ai = get_enemy_ai(enemy_id, enemy)
+        self.enemy_ai.dimension = self.dimension
         
         # Initialize combat state
         self.state = CombatState(
@@ -295,10 +307,25 @@ class DimensionalBattleSystem:
         
         self.phase_timer += dt
         
+        # Track perception for shift effects
+        old_perception = self.rules.current_perception
+        
         # Update dimensional systems
         self.rules.update(dt)
         self.resonance.update(dt)
         self.battle_box.update(dt)
+        self.effects.update(dt)
+        
+        # Check for perception shift and spawn effect
+        if self.rules.current_perception != old_perception and not self.rules.is_shifting:
+            self.effects.spawn_perception_shift_effect(
+                self.soul.x, self.soul.y,
+                old_perception, self.rules.current_perception
+            )
+        
+        # Check for transcendence activation
+        if self.rules.transcendence_active and self.rules.transcendence_duration > 5.9:
+            self.effects.spawn_transcendence_effect(self.soul.x, self.soul.y)
         
         # Phase-specific updates
         if self.state.phase == CombatPhase.INTRO:
@@ -368,6 +395,9 @@ class DimensionalBattleSystem:
             self.battle_box.bounds
         )
         
+        # Update soul trail effect
+        self.effects.update_soul_trail("player", self.soul.x, self.soul.y, self.soul.color)
+        
         # Update attack timer
         self.state.attack_timer += dt
         
@@ -416,6 +446,10 @@ class DimensionalBattleSystem:
                     self.soul.make_invincible()
                     bullet.active = False
                     
+                    # Spawn damage effects
+                    self.effects.spawn_damage_particles(self.soul.x, self.soul.y, actual_damage)
+                    self.effects.spawn_damage_number(self.soul.x, self.soul.y, actual_damage)
+                    
                     # Fractured perception on hit
                     if random.random() < 0.1:  # 10% chance
                         self.rules.current_perception = PerceptionState.FRACTURED
@@ -436,6 +470,9 @@ class DimensionalBattleSystem:
             
             if hit_dist < dist <= graze_dist:
                 self.grazed_bullets.add(i)
+                
+                # Spawn graze effect
+                self.effects.spawn_graze_effect(bullet.x, bullet.y)
                 
                 # Build resonance and transcendence
                 self.rules.add_transcendence(2.0)
@@ -506,29 +543,82 @@ class DimensionalBattleSystem:
         self.state.start_attack_phase(pattern.duration)
         self.phase_timer = 0.0
         
-        # Generate dimensional bullets
+        # Check for perception attack from enemy AI
+        perception_attack_text = self._try_enemy_perception_attack()
+        if perception_attack_text:
+            self.state.current_dialogue = perception_attack_text
+        
+        # Generate dimensional bullets using AI
         self.bullets = self._generate_dimensional_attack(pattern)
         self.grazed_bullets.clear()
+        
+        # Record player perception for AI learning
+        if self.enemy_ai:
+            self.enemy_ai.record_player_perception(self.rules.current_perception)
+    
+    def _try_enemy_perception_attack(self) -> Optional[str]:
+        """Check if enemy AI wants to use a perception attack."""
+        if not self.enemy_ai:
+            return None
+        
+        hp_ratio = self.enemy.stats.hp / self.enemy.stats.max_hp
+        
+        # Check for boss phase transition
+        phase_text = self.enemy_ai.update_boss_phase(hp_ratio)
+        if phase_text:
+            self.effects.spawn_dimension_transition(
+                self.screen_width, self.screen_height,
+                self.dimension, self.dimension
+            )
+        
+        # Check if should use perception attack
+        if self.enemy_ai.should_use_perception_attack(hp_ratio):
+            attack = self.enemy_ai.select_perception_attack(self.rules.current_perception)
+            if attack:
+                text = self.enemy_ai.apply_perception_attack(attack, self.rules)
+                # Visual feedback for perception attack
+                self.effects.spawn_perception_shift_effect(
+                    self.soul.x, self.soul.y,
+                    self.rules.current_perception, self.rules.current_perception
+                )
+                return text
+        
+        return None
     
     def _generate_dimensional_attack(self, pattern) -> List[DimensionalBullet]:
-        """Generate attack bullets based on dimension."""
+        """Generate attack bullets based on dimension and AI."""
         bounds = self.battle_box.bounds
-        difficulty = getattr(pattern, 'base_difficulty', 1.0)
+        base_difficulty = getattr(pattern, 'base_difficulty', 1.0)
         
+        # Use AI to select pattern and adjust difficulty
+        if self.enemy_ai:
+            attack_type, difficulty = self.enemy_ai.select_attack_pattern(
+                self.rules.current_perception,
+                base_difficulty
+            )
+        else:
+            attack_type = None
+            difficulty = base_difficulty
+        
+        # Generate based on dimension
         if self.dimension == CombatDimension.ONE_D:
-            attack_type = random.choice(["line_sweep", "converging_points", "segment_wave"])
+            if not attack_type:
+                attack_type = random.choice(["line_sweep", "converging_points", "segment_wave"])
             return DimensionalPatternGenerator.generate_1d_attack(bounds, attack_type, difficulty)
         
         elif self.dimension == CombatDimension.TWO_D:
-            attack_type = random.choice(["triangle_formation", "square_grid", "circle_spiral"])
+            if not attack_type:
+                attack_type = random.choice(["triangle_formation", "square_grid", "circle_spiral"])
             return DimensionalPatternGenerator.generate_2d_attack(bounds, attack_type, difficulty)
         
         elif self.dimension == CombatDimension.THREE_D:
-            attack_type = random.choice(["depth_wave", "phasing_cubes", "shadow_assault"])
+            if not attack_type:
+                attack_type = random.choice(["depth_wave", "phasing_cubes", "shadow_assault"])
             return DimensionalPatternGenerator.generate_3d_attack(bounds, attack_type, difficulty)
         
         elif self.dimension == CombatDimension.FOUR_D:
-            attack_type = random.choice(["temporal_burst", "past_echo", "future_convergence"])
+            if not attack_type:
+                attack_type = random.choice(["temporal_burst", "past_echo", "future_convergence"])
             return DimensionalPatternGenerator.generate_4d_attack(bounds, attack_type, difficulty)
         
         return []
@@ -661,6 +751,11 @@ class DimensionalBattleSystem:
         actual_damage = self.enemy.stats.take_damage(damage)
         self.enemy.times_hurt += 1
         
+        # Spawn enemy hit effect
+        enemy_x = self.screen_width // 2
+        enemy_y = self.screen_height // 3
+        self.effects.spawn_enemy_hit_effect(enemy_x, enemy_y, actual_damage)
+        
         # Build resonance from attacking
         self.resonance.add_resonance("line", 5.0)  # Attacking builds line resonance
         
@@ -723,6 +818,8 @@ class DimensionalBattleSystem:
                 if item.heal_amount > 0:
                     healed = self.state.player_stats.heal(item.heal_amount)
                     self.state.current_dialogue = f"* You used {item.name}.\n* Recovered {healed} HP!"
+                    # Spawn heal effect
+                    self.effects.spawn_heal_effect(self.soul.x, self.soul.y, healed)
                 else:
                     self.state.current_dialogue = f"* You used {item.name}."
                 
@@ -791,16 +888,27 @@ class DimensionalBattleSystem:
         if not self.state:
             return
         
+        # Get screen shake offset
+        shake_x, shake_y = self.effects.get_screen_offset()
+        
+        # Create offset surface for shake effect
+        if shake_x != 0 or shake_y != 0:
+            offset_screen = pygame.Surface(screen.get_size())
+            offset_screen.fill((0, 0, 0))
+            draw_target = offset_screen
+        else:
+            draw_target = screen
+        
         # Draw battle box
-        self.battle_box.draw(screen)
+        self.battle_box.draw(draw_target)
         
         # Draw bullets with dimensional effects
         if self.dimension == CombatDimension.THREE_D:
-            self.battle_box.draw_bullets_with_depth(screen, self.bullets, self.soul.depth)
+            self.battle_box.draw_bullets_with_depth(draw_target, self.bullets, self.soul.depth)
         elif self.dimension == CombatDimension.FOUR_D:
             abilities = PerceptionAbilities.for_state(self.rules.current_perception)
             self.battle_box.draw_temporal_bullets(
-                screen, self.bullets,
+                draw_target, self.bullets,
                 self.rules.time_position,
                 abilities.can_see_trajectories
             )
@@ -808,14 +916,21 @@ class DimensionalBattleSystem:
             # Standard bullet drawing
             for bullet in self.bullets:
                 if bullet.active:
-                    pygame.draw.circle(screen, bullet.color,
+                    pygame.draw.circle(draw_target, bullet.color,
                                      (int(bullet.x), int(bullet.y)), int(bullet.radius))
         
         # Draw soul
         if self.state.phase == CombatPhase.ENEMY_ATTACK:
-            self.soul.draw(screen, self.rules)
+            self.soul.draw(draw_target, self.rules)
         
-        # Draw HUD
+        # Draw combat effects (particles, rings, etc.)
+        self.effects.draw(draw_target)
+        
+        # Apply screen shake
+        if shake_x != 0 or shake_y != 0:
+            screen.blit(draw_target, (int(shake_x), int(shake_y)))
+        
+        # Draw HUD (not affected by shake)
         self.hud.draw(screen, self.rules, self.dimension)
         self.resonance_meter.draw(screen, self.resonance)
         

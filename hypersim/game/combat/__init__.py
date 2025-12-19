@@ -95,6 +95,28 @@ from .dimensional_battle_system import (
     DimensionalSoul, DimensionalBattleSystem,
     create_dimensional_battle_system
 )
+from .combat_effects import (
+    CombatEffectsManager, Particle, TextPopup,
+    ScreenShake, ScreenFlash, RingEffect,
+    get_effects_manager
+)
+from .dimensional_enemy_ai import (
+    DimensionalEnemyAI, EnemyAIType, PerceptionAttackType,
+    PerceptionAttack, get_enemy_ai, create_ai_for_enemy,
+    ENEMY_AI_PRESETS
+)
+from .dimensional_ui import (
+    DimensionalCombatUI, AnimatedBar, CombatMenuItem
+)
+from .dimensional_integration import (
+    DimensionalCombatIntegration, DimensionalEncounterConfig,
+    RealmEncounterTable, TransitionState,
+    create_dimensional_combat_integration
+)
+from .story_encounters import (
+    StoryEncounter, StoryEncounterType, StoryEncounterManager,
+    ENCOUNTERS_1D, get_encounter_manager
+)
 
 __all__ = [
     # Core
@@ -206,6 +228,38 @@ __all__ = [
     "DimensionalSoul",
     "DimensionalBattleSystem",
     "create_dimensional_battle_system",
+    # Combat Effects
+    "CombatEffectsManager",
+    "Particle",
+    "TextPopup",
+    "ScreenShake",
+    "ScreenFlash",
+    "RingEffect",
+    "get_effects_manager",
+    # Enemy AI
+    "DimensionalEnemyAI",
+    "EnemyAIType",
+    "PerceptionAttackType",
+    "PerceptionAttack",
+    "get_enemy_ai",
+    "create_ai_for_enemy",
+    "ENEMY_AI_PRESETS",
+    # Dimensional UI
+    "DimensionalCombatUI",
+    "AnimatedBar",
+    "CombatMenuItem",
+    # Dimensional Integration
+    "DimensionalCombatIntegration",
+    "DimensionalEncounterConfig",
+    "RealmEncounterTable",
+    "TransitionState",
+    "create_dimensional_combat_integration",
+    # Story Encounters
+    "StoryEncounter",
+    "StoryEncounterType",
+    "StoryEncounterManager",
+    "ENCOUNTERS_1D",
+    "get_encounter_manager",
 ]
 
 

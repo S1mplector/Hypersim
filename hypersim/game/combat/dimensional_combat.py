@@ -627,6 +627,94 @@ class DimensionalPatternGenerator:
                     radius=15,
                 ))
         
+        elif attack_type == "ping_pong":
+            # Bullets that bounce between top and bottom of the line
+            num_bullets = int(6 * difficulty)
+            for i in range(num_bullets):
+                start_top = i % 2 == 0
+                bullets.append(DimensionalBullet(
+                    x=min_x + (max_x - min_x) * (i + 1) / (num_bullets + 1),
+                    y=min_y if start_top else max_y,
+                    velocity_x=random.uniform(-30, 30) * difficulty,
+                    velocity_y=(120 if start_top else -120) * difficulty,
+                    source_dimension=CombatDimension.ONE_D,
+                    attack_direction="vertical",
+                    radius=6,
+                    color=(100, 200, 255),
+                ))
+        
+        elif attack_type == "point_collapse":
+            # Points that collapse to the center then explode outward
+            num_points = int(10 * difficulty)
+            for i in range(num_points):
+                angle = 2 * math.pi * i / num_points
+                dist = 80
+                bullets.append(DimensionalBullet(
+                    x=center_x + math.cos(angle) * dist,
+                    y=center_y + math.sin(angle) * dist,
+                    velocity_x=-math.cos(angle) * 100 * difficulty,
+                    velocity_y=-math.sin(angle) * 100 * difficulty,
+                    source_dimension=CombatDimension.ONE_D,
+                    attack_direction="radial",
+                    radius=5,
+                    color=(150, 100, 255),
+                ))
+        
+        elif attack_type == "void_pulse":
+            # Dark pulses from the void (backward direction emphasis)
+            num_pulses = int(4 * difficulty)
+            for i in range(num_pulses):
+                # Pulses come from the right (void direction)
+                delay_offset = i * 40
+                bullets.append(DimensionalBullet(
+                    x=max_x + delay_offset,
+                    y=center_y + random.uniform(-20, 20),
+                    velocity_x=-180 * difficulty,
+                    velocity_y=random.uniform(-20, 20),
+                    source_dimension=CombatDimension.ONE_D,
+                    attack_direction="horizontal",
+                    radius=10,
+                    color=(80, 80, 120),
+                ))
+        
+        elif attack_type == "guardian_barrage":
+            # Boss-level attack: multiple waves with gaps
+            wave_count = int(3 * difficulty)
+            for wave in range(wave_count):
+                gap_position = random.randint(1, 4)  # Gap in one of 5 positions
+                for slot in range(5):
+                    if slot == gap_position:
+                        continue  # Leave gap for player
+                    y = min_y + (max_y - min_y) * (slot + 0.5) / 5
+                    bullets.append(DimensionalBullet(
+                        x=min_x - wave * 80,
+                        y=y,
+                        velocity_x=160 * difficulty,
+                        velocity_y=0,
+                        source_dimension=CombatDimension.ONE_D,
+                        attack_direction="horizontal",
+                        radius=8,
+                        color=(255, 200, 100),
+                    ))
+        
+        elif attack_type == "echo_spiral":
+            # Spiral pattern constrained to 1D movement
+            num_bullets = int(12 * difficulty)
+            for i in range(num_bullets):
+                t = i / num_bullets
+                x = min_x + (max_x - min_x) * t
+                y_offset = math.sin(t * 4 * math.pi) * 30
+                bullets.append(DimensionalBullet(
+                    x=x,
+                    y=center_y + y_offset,
+                    velocity_x=0,
+                    velocity_y=-y_offset * 3,  # Move toward center line
+                    source_dimension=CombatDimension.ONE_D,
+                    attack_direction="vertical",
+                    radius=5,
+                    color=(100, 150, 200),
+                ))
+        
         return bullets
     
     @staticmethod
