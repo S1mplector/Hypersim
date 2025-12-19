@@ -26,6 +26,15 @@ from hypersim.game.rendering.hyper_renderer import HyperRenderer
 from hypersim.game.controllers.volume_controller import VolumeController
 from hypersim.game.controllers.hyper_controller import HyperController
 
+# New integrated systems
+from hypersim.game.ui.textbox import DialogueSystem, DialogueLine, TextBoxStyle, create_campaign_dialogues
+from hypersim.game.ui.overlay import OverlayManager
+from hypersim.game.audio import AudioSystem, GameAudioHandler, get_audio_system
+from hypersim.game.evolution import EvolutionState, PolytopeForm, get_evolution_system
+from hypersim.game.story.campaign import Campaign
+from hypersim.game.story.npc import NPCManager
+from hypersim.game.story.lore import Codex
+
 if TYPE_CHECKING:
     from hypersim.game.session import GameSession
 
@@ -92,6 +101,32 @@ class GameLoop:
         self.running = False
         self.paused = False
         self.target_fps = 60
+        
+        # === NEW INTEGRATED SYSTEMS ===
+        
+        # Dialogue system
+        self.dialogue = DialogueSystem(self.screen)
+        for seq in create_campaign_dialogues():
+            self.dialogue.register_sequence(seq)
+        
+        # Overlay manager (notifications, etc.)
+        self.overlays = OverlayManager(self.screen)
+        
+        # Audio system
+        self.audio = get_audio_system()
+        self._audio_handler = GameAudioHandler(self.audio, self.world)
+        
+        # Evolution system (for 4D)
+        self.evolution = get_evolution_system()
+        self._evolution_state = EvolutionState()
+        
+        # Story/Campaign system
+        self.campaign = Campaign()
+        self.npc_manager = NPCManager()
+        self.codex = Codex()
+        
+        # Track dimension intro dialogues shown
+        self._dimension_intros_shown: set = set()
         
         # Wire up event handlers
         self._setup_event_handlers()
@@ -160,6 +195,19 @@ class GameLoop:
         
         self.session.record_event("collect", item=pickup.item_type, count=pickup.value)
         self.world.emit("pickup_collected", item=pickup.item_type, entity_id=pickup_entity.id)
+        
+        # Grant evolution XP in 4D
+        dim_id = self.session.active_dimension.id
+        if dim_id == "4d":
+            xp_value = pickup.value * 10  # 10 XP per pickup value
+            actual_xp, can_evolve = self._evolution_state.add_xp(xp_value)
+            self.overlays.notify(f"+{actual_xp} Evolution XP", color=(200, 150, 255))
+            
+            if can_evolve:
+                self.overlays.notify("★ EVOLUTION READY! ★", duration=5.0, color=(255, 220, 100))
+        
+        # Notification
+        self.overlays.notify(f"Collected {pickup.item_type}!", color=(255, 220, 50))
     
     def _use_portal(self, portal: Portal) -> None:
         """Handle player entering a portal."""
@@ -179,6 +227,39 @@ class GameLoop:
         
         # Update input system
         self.input_system.set_dimension(dim_id)
+        
+        # Trigger dimension intro dialogue (first time only)
+        self._trigger_dimension_intro(dim_id)
+        
+        # Set evolution state for 4D renderer
+        if dim_id == "4d":
+            renderer = self._renderers.get("4d")
+            if renderer and hasattr(renderer, "set_evolution_state"):
+                renderer.set_evolution_state(self._evolution_state)
+        
+        # Notify dimension change
+        dim_name = self.session.active_dimension.name
+        self.overlays.notify(f"Entered {dim_name}", duration=3.0, color=(150, 200, 255))
+        self.audio.play("dimension_shift")
+    
+    def _trigger_dimension_intro(self, dim_id: str) -> None:
+        """Trigger intro dialogue for a dimension (first time only)."""
+        if dim_id in self._dimension_intros_shown:
+            return
+        
+        self._dimension_intros_shown.add(dim_id)
+        
+        # Map dimensions to dialogue sequences
+        intro_map = {
+            "1d": "intro_1d",
+            "2d": "intro_2d",
+            "3d": "intro_3d",
+            "4d": "intro_4d",
+        }
+        
+        seq_id = intro_map.get(dim_id)
+        if seq_id:
+            self.dialogue.start_sequence(seq_id)
     
     def _spawn_default_level(self, dimension_id: str) -> None:
         """Spawn default entities for a dimension."""
@@ -485,13 +566,20 @@ class GameLoop:
             # Process events
             self._process_events()
             
-            if not self.paused:
+            # Check if dialogue or overlay should pause game
+            dialogue_active = self.dialogue.should_pause_game
+            
+            if not self.paused and not dialogue_active:
                 # Update systems
                 self.world.update(dt)
                 
                 # Process game events for session/objectives
                 for event in self.world.drain_events():
                     self.session.record_event(event.event_type, **event.data)
+            
+            # Update dialogue and overlays (always)
+            self.dialogue.update(dt)
+            self.overlays.update(dt)
             
             # Render
             self._render()
@@ -500,43 +588,84 @@ class GameLoop:
             self.input_handler.end_frame()
             pygame.display.flip()
         
+        # Save progression on exit
+        from hypersim.game.save import save_progression
+        save_progression(self.session.progression)
+        
         pygame.quit()
     
     def _process_events(self) -> None:
         """Process pygame events."""
         for event in pygame.event.get():
+            # Let dialogue system handle input first
+            if self.dialogue.handle_input(event):
+                continue
+            
+            # Let overlay manager handle input
+            if self.overlays.handle_event(event):
+                continue
+            
             if event.type == pygame.QUIT:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    if self._mouse_captured:
+                    if self.dialogue.is_active:
+                        # Close dialogue first
+                        self.dialogue.stop()
+                    elif self._mouse_captured:
                         # Release mouse first
                         self._set_mouse_capture(False)
                     else:
                         self.running = False
                 elif event.key == pygame.K_p:
-                    self.paused = not self.paused
+                    if not self.dialogue.is_active:
+                        self.paused = not self.paused
                 elif event.key == pygame.K_r:
                     # Reload level
-                    self._reload_dimension()
+                    if not self.dialogue.is_active:
+                        self._reload_dimension()
                 elif event.key == pygame.K_TAB:
                     # Toggle mouse capture in 3D/4D
                     dim = self.session.active_dimension.id
-                    if dim in ("3d", "4d"):
+                    if dim in ("3d", "4d") and not self.dialogue.is_active:
                         self._set_mouse_capture(not self._mouse_captured)
+                elif event.key == pygame.K_v:
+                    # Try to evolve (in 4D)
+                    if self.session.active_dimension.id == "4d":
+                        self._try_evolve()
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 # Click to capture mouse in 3D/4D
                 dim = self.session.active_dimension.id
-                if dim in ("3d", "4d") and not self._mouse_captured:
+                if dim in ("3d", "4d") and not self._mouse_captured and not self.dialogue.is_active:
                     self._set_mouse_capture(True)
             
             # Forward to input handler
             self.input_handler.process_event(event)
         
         # Process mouse look for 3D/4D controllers
-        if self._mouse_captured and not self.paused:
+        if self._mouse_captured and not self.paused and not self.dialogue.is_active:
             self._volume_controller.process_mouse(self.input_handler)
             self._hyper_controller.process_mouse(self.input_handler)
+    
+    def _try_evolve(self) -> None:
+        """Attempt to evolve to the next polytope form."""
+        if not self._evolution_state.can_evolve():
+            self.overlays.notify("Not enough XP to evolve", color=(200, 100, 100))
+            return
+        
+        new_form = self._evolution_state.evolve()
+        if new_form:
+            self.audio.play("ability")
+            self.overlays.notify(
+                f"★ EVOLVED to {new_form.short_name}! ★",
+                duration=5.0,
+                color=(255, 220, 100)
+            )
+            
+            # Show evolution dialogue
+            if not hasattr(self, '_evolution_dialogue_shown'):
+                self._evolution_dialogue_shown = True
+                self.dialogue.start_sequence("evolution_unlocked")
     
     def _render(self) -> None:
         """Render the current frame."""
@@ -548,6 +677,12 @@ class GameLoop:
         else:
             # Fallback: clear screen
             self.screen.fill((20, 20, 30))
+        
+        # Draw overlays (notifications, etc.)
+        self.overlays.draw()
+        
+        # Draw dialogue (on top of everything except pause)
+        self.dialogue.draw()
         
         # Draw pause overlay
         if self.paused:
@@ -575,22 +710,42 @@ class GameLoop:
     def _draw_session_info(self) -> None:
         """Draw session/progression info."""
         font = pygame.font.Font(None, 20)
+        dim_id = self.session.active_dimension.id
         
         # XP
         xp_text = font.render(f"XP: {self.session.progression.xp}", True, (180, 180, 100))
         self.screen.blit(xp_text, (self.width - 80, 10))
         
+        # Evolution XP in 4D
+        if dim_id == "4d":
+            evo_xp = self._evolution_state.evolution_xp
+            form_name = self._evolution_state.current_form_def.short_name
+            evo_text = font.render(f"Form: {form_name} | Evo XP: {evo_xp}", True, (200, 150, 255))
+            self.screen.blit(evo_text, (self.width - 200, 30))
+            
+            if self._evolution_state.can_evolve():
+                evolve_hint = font.render("Press V to EVOLVE!", True, (255, 220, 100))
+                self.screen.blit(evolve_hint, (self.width - 150, 50))
+        
         # Active mission
-        if self.session.progression.active_node_id:
+        elif self.session.progression.active_node_id:
             mission_text = font.render(
                 f"Mission: {self.session.progression.active_node_id}",
                 True, (150, 150, 200)
             )
             self.screen.blit(mission_text, (self.width - 200, 30))
         
-        # Controls hint
-        controls = font.render("WASD/Arrows: Move | E: Interact | P: Pause | R: Restart", True, (100, 100, 120))
-        self.screen.blit(controls, (10, self.height - 20))
+        # Controls hint (dimension-specific)
+        if dim_id in ("3d", "4d"):
+            if dim_id == "4d":
+                controls = "WASD: Move | Mouse: Look | Q/E: W-axis | V: Evolve | SPACE/ENTER: Dialogue"
+            else:
+                controls = "WASD: Move | Mouse: Look | Space/Ctrl: Up/Down | SPACE/ENTER: Dialogue"
+        else:
+            controls = "WASD/Arrows: Move | E: Interact | SPACE/ENTER: Dialogue"
+        
+        controls_text = font.render(controls, True, (100, 100, 120))
+        self.screen.blit(controls_text, (10, self.height - 20))
 
 
 def run_game(session: Optional["GameSession"] = None) -> None:
