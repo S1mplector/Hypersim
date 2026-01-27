@@ -4,12 +4,19 @@
     "1d"
   ],
   "completed_nodes": [],
-  "xp": 5,
+  "xp": 29,
   "profile_name": "default",
   "active_node_id": null,
   "mission_progress": {},
   "unlocked_abilities": [
     "ping_neighbors"
+  ],
+  "intro_impulse": "",
+  "terminus_seen": true,
+  "shift_tutorial_done": true,
+  "outsider_cutscene_played": false,
+  "shown_dimension_vignettes": [
+    "1d"
   ],
   "evolution_form": 0,
   "evolution_xp": 0,

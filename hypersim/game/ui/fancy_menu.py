@@ -458,11 +458,11 @@ class AnimatedButton:
     enabled: bool = True
     
     # Style
-    color_normal: Tuple[int, int, int] = (30, 40, 60)
-    color_hover: Tuple[int, int, int] = (50, 70, 100)
-    color_pressed: Tuple[int, int, int] = (70, 100, 140)
-    color_text: Tuple[int, int, int] = (200, 210, 230)
-    color_glow: Tuple[int, int, int] = (100, 150, 255)
+    color_normal: Tuple[int, int, int] = (18, 24, 38)
+    color_hover: Tuple[int, int, int] = (32, 46, 68)
+    color_pressed: Tuple[int, int, int] = (60, 90, 120)
+    color_text: Tuple[int, int, int] = (235, 225, 210)
+    color_glow: Tuple[int, int, int] = (255, 180, 90)
     
     def update(self, dt: float, mouse_pos: Tuple[int, int], mouse_pressed: bool) -> bool:
         """Update button. Returns True if clicked."""
@@ -583,6 +583,7 @@ class FancyMainMenu:
         self.buttons_visible = False
         self.intro_time = 0.0
         self.intro_done = False
+        self.mosaic_phase = 0.0
         
         # Background
         self.cosmic_bg = CosmicBackground(self.width, self.height)
@@ -746,6 +747,9 @@ class FancyMainMenu:
         for btn_id in active_buttons:
             if btn_id in self.buttons:
                 self.buttons[btn_id].update(dt, mouse_pos, mouse_pressed)
+        
+        # Overlay phase for subtle motion
+        self.mosaic_phase += dt * 0.35
     
     def _get_active_buttons(self) -> List[str]:
         """Get button IDs for current state."""
@@ -876,6 +880,7 @@ class FancyMainMenu:
         """Draw the menu."""
         # Cosmic background
         self.cosmic_bg.draw(self.screen)
+        self._draw_dimensional_overlay()
         
         # 4D shape in background
         shape_center = (self.width // 2, self.height // 2 - 50)
@@ -893,6 +898,10 @@ class FancyMainMenu:
         # Title
         self._draw_title()
         
+        # Lore snippet panel
+        if self.state == MenuState.MAIN:
+            self._draw_lore_panel()
+        
         # Buttons (with fade-in)
         if self.buttons_visible:
             self._draw_buttons()
@@ -902,11 +911,11 @@ class FancyMainMenu:
             self._draw_settings_panel()
         
         # Version
-        version_text = self._font_small.render("v0.1.0 Alpha", True, (60, 60, 80))
+        version_text = self._font_small.render("v0.1.0 Alpha", True, (140, 150, 170))
         self.screen.blit(version_text, (10, self.height - 25))
         
         # Controls hint
-        hint_text = self._font_small.render("Navigate with mouse • ESC to go back", True, (60, 60, 80))
+        hint_text = self._font_small.render("Navigate with mouse • ESC to go back", True, (140, 150, 170))
         hint_rect = hint_text.get_rect(center=(self.width // 2, self.height - 20))
         self.screen.blit(hint_text, hint_rect)
     
@@ -915,20 +924,97 @@ class FancyMainMenu:
         title_y = 100 + int(self.title_offset)
         
         # Title text
-        title_color = (220, 230, 255)
+        title_color = (245, 235, 215)
         title_surf = self._font_title.render("TESSERA", True, title_color)
         title_rect = title_surf.get_rect(center=(self.width // 2, title_y))
         self.screen.blit(title_surf, title_rect)
         
         # Subtitle
-        subtitle_color = (120, 140, 180)
-        subtitle_surf = self._font_subtitle.render("A Cross-Dimensional Adventure", True, subtitle_color)
+        subtitle_color = (255, 200, 120)
+        subtitle_surf = self._font_subtitle.render("Lore of the Multidimensional Spark", True, subtitle_color)
         subtitle_rect = subtitle_surf.get_rect(center=(self.width // 2, title_y + 50))
         self.screen.blit(subtitle_surf, subtitle_rect)
+
+    def _draw_dimensional_overlay(self) -> None:
+        """Layered overlays to match the game's dimensional/lore theme."""
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        
+        # Radial glow
+        center = (self.width // 2, int(self.height * 0.35))
+        max_r = int(max(self.width, self.height) * 0.7)
+        for i in range(6):
+            radius = max_r - i * int(max_r * 0.12)
+            alpha = max(10, 80 - i * 12)
+            color = (40, 70, 120, alpha)
+            pygame.draw.circle(overlay, color, center, radius)
+        
+        # Mosaic lines (diagonal cross hatch)
+        spacing = 90
+        phase = int(self.mosaic_phase * 40)
+        mosaic_color = (255, 180, 90, 55)
+        for i in range(-self.width, self.width * 2, spacing):
+            pygame.draw.line(
+                overlay,
+                mosaic_color,
+                (i + phase, 0),
+                (i - self.height + phase, self.height),
+                1,
+            )
+            pygame.draw.line(
+                overlay,
+                (120, 200, 200, 35),
+                (self.width - i - phase, 0),
+                (self.width - i + self.height - phase, self.height),
+                1,
+            )
+        
+        # Subtle horizon fade
+        grad = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        for y in range(self.height):
+            alpha = int(90 * (1 - y / self.height))
+            grad.fill((5, 8, 15, alpha), rect=pygame.Rect(0, y, self.width, 1))
+        self.screen.blit(overlay, (0, 0), special_flags=pygame.BLEND_ADD)
+        self.screen.blit(grad, (0, 0))
+
+    def _draw_lore_panel(self) -> None:
+        """Display a short lore blurb on the main menu."""
+        panel_w = 380
+        panel_h = 160
+        panel_x = self.width // 2 - panel_w - 260
+        panel_y = self.height // 2 - 40
+        
+        surf = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+        pygame.draw.rect(surf, (8, 10, 18, 180), (0, 0, panel_w, panel_h), border_radius=12)
+        pygame.draw.rect(surf, (255, 180, 90, 80), (0, 0, panel_w, panel_h), width=2, border_radius=12)
+        self.screen.blit(surf, (panel_x, panel_y))
+        
+        header = self._font_button.render("Tessera Codex", True, (235, 225, 210))
+        self.screen.blit(header, (panel_x + 16, panel_y + 12))
+        
+        lore_lines = [
+            "Monodia was only a line until a Spark knew itself.",
+            "Each dimension is a tile in a larger mosaic.",
+            "Ascend, but remember: every new axis casts a longer shadow.",
+        ]
+        y = panel_y + 46
+        for line in lore_lines:
+            txt = self._font_small.render(line, True, (200, 205, 215))
+            self.screen.blit(txt, (panel_x + 16, y))
+            y += 26
     
     def _draw_buttons(self) -> None:
         """Draw active buttons."""
         active = self._get_active_buttons()
+        # Glass panel behind main buttons for cohesion
+        if self.state == MenuState.MAIN and active:
+            panel_width = 360
+            panel_height = len(active) * 65 + 40
+            panel_x = self.width // 2 - panel_width // 2
+            panel_y = self.height // 2 + 20
+            glass = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
+            pygame.draw.rect(glass, (8, 10, 18, 160), (0, 0, panel_width, panel_height), border_radius=14)
+            pygame.draw.rect(glass, (255, 180, 90, 70), (0, 0, panel_width, panel_height), width=2, border_radius=14)
+            self.screen.blit(glass, (panel_x, panel_y))
         for btn_id in active:
             if btn_id in self.buttons:
                 self.buttons[btn_id].draw(self.screen, self._font_button)
@@ -938,12 +1024,13 @@ class FancyMainMenu:
         panel_x = self.width // 2 - 200
         panel_y = self.height // 2 - 100
         panel_width = 400
+        panel_height = 250
         
-        # Panel background
-        panel_surf = pygame.Surface((panel_width, 250), pygame.SRCALPHA)
-        panel_surf.fill((20, 25, 40, 200))
+        # Panel background with subtle gold edge
+        panel_surf = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
+        pygame.draw.rect(panel_surf, (10, 12, 22, 215), (0, 0, panel_width, panel_height), border_radius=12)
+        pygame.draw.rect(panel_surf, (255, 190, 110, 90), (0, 0, panel_width, panel_height), width=2, border_radius=12)
         self.screen.blit(panel_surf, (panel_x, panel_y))
-        pygame.draw.rect(self.screen, (50, 60, 80), (panel_x, panel_y, panel_width, 250), 2, border_radius=8)
         
         # Title
         if self.state == MenuState.AUDIO:
@@ -965,7 +1052,7 @@ class FancyMainMenu:
                 ("Mouse Sensitivity", "mouse_sensitivity"),
             ]
         
-        title_surf = self._font_button.render(title, True, (200, 210, 230))
+        title_surf = self._font_button.render(title, True, (235, 225, 210))
         title_rect = title_surf.get_rect(center=(self.width // 2, panel_y + 25))
         self.screen.blit(title_surf, title_rect)
         
@@ -978,7 +1065,7 @@ class FancyMainMenu:
     def _draw_setting_row(self, x: int, y: int, width: int, label: str, key: str) -> None:
         """Draw a single setting row."""
         # Label
-        label_surf = self._font_small.render(label, True, (180, 190, 210))
+        label_surf = self._font_small.render(label, True, (230, 225, 215))
         self.screen.blit(label_surf, (x, y))
         
         value = self.settings.get(key, 0)
@@ -986,26 +1073,26 @@ class FancyMainMenu:
         if isinstance(value, bool):
             # Toggle
             toggle_x = x + width - 60
-            toggle_color = (100, 180, 100) if value else (80, 80, 100)
+            toggle_color = (120, 200, 140) if value else (70, 80, 100)
             pygame.draw.rect(self.screen, toggle_color, (toggle_x, y, 50, 24), border_radius=12)
             circle_x = toggle_x + 37 if value else toggle_x + 13
-            pygame.draw.circle(self.screen, (255, 255, 255), (circle_x, y + 12), 8)
+            pygame.draw.circle(self.screen, (240, 235, 230), (circle_x, y + 12), 8)
         else:
             # Slider
             slider_x = x + width - 160
             slider_width = 150
-            pygame.draw.rect(self.screen, (40, 50, 70), (slider_x, y + 8, slider_width, 8), border_radius=4)
+            pygame.draw.rect(self.screen, (26, 32, 46), (slider_x, y + 8, slider_width, 8), border_radius=4)
             fill_width = int(slider_width * value)
-            pygame.draw.rect(self.screen, (100, 150, 255), (slider_x, y + 8, fill_width, 8), border_radius=4)
-            pygame.draw.circle(self.screen, (200, 220, 255), (slider_x + fill_width, y + 12), 8)
+            pygame.draw.rect(self.screen, (255, 180, 90), (slider_x, y + 8, fill_width, 8), border_radius=4)
+            pygame.draw.circle(self.screen, (240, 235, 230), (slider_x + fill_width, y + 12), 8)
             
             # Value text
-            value_text = self._font_small.render(f"{int(value * 100)}%", True, (150, 160, 180))
+            value_text = self._font_small.render(f"{int(value * 100)}%", True, (190, 200, 210))
             self.screen.blit(value_text, (slider_x + slider_width + 10, y))
 
 
-def run_tessera_menu() -> Optional[str]:
-    """Run the full Tessera menu experience. Returns selected mode or None."""
+def run_tessera_menu() -> Optional[dict]:
+    """Run the full Tessera menu experience. Returns data {mode, intro_impulse} or None."""
     pygame.init()
     pygame.mixer.init()
     
@@ -1025,6 +1112,7 @@ def run_tessera_menu() -> Optional[str]:
     in_intro = False
     intro_sequence = None
     selected_mode = None
+    intro_impulse = ""
     
     def on_start(mode: str):
         nonlocal selected_mode, running, in_intro, intro_sequence
@@ -1064,6 +1152,7 @@ def run_tessera_menu() -> Optional[str]:
             intro_sequence.update(dt)
             intro_sequence.draw()
             if intro_sequence.is_complete:
+                intro_impulse = getattr(intro_sequence, "impulse_choice", "") or ""
                 running = False
         elif in_splash:
             if splash.update(dt):
@@ -1077,4 +1166,6 @@ def run_tessera_menu() -> Optional[str]:
         pygame.display.flip()
     
     pygame.quit()
-    return selected_mode
+    if selected_mode:
+        return {"mode": selected_mode, "intro_impulse": intro_impulse}
+    return None

@@ -13,9 +13,7 @@ import math
 from hypersim.core.math_4d import (
     Vector4D,
     Matrix4D,
-    create_vector_4d,
-    create_rotation_matrix_4d,
-    normalize_vector,
+    create_look_at_matrix,
 )
 
 
@@ -57,11 +55,13 @@ class Camera4D:
     _orbit_yaw: float = field(default=0.0, init=False)
     _orbit_pitch: float = field(default=0.0, init=False)
     _orbit_distance: float = field(default=5.0, init=False)
+    view_matrix: Matrix4D = field(default_factory=lambda: np.eye(4, dtype=np.float32), init=False)
     
     def __post_init__(self):
         """Initialize derived values."""
         self._orbit_distance = np.linalg.norm(self.position - self.target)
         self._update_orbit_angles()
+        self._update_view_matrix()
     
     def _update_orbit_angles(self) -> None:
         """Calculate orbit angles from current position."""
@@ -79,6 +79,7 @@ class Camera4D:
             -self._orbit_distance * math.cos(self._orbit_yaw) * cos_pitch,
             self.position[3],  # Keep W coordinate
         ], dtype=np.float32)
+        self._update_view_matrix()
     
     def orbit(self, delta_yaw: float, delta_pitch: float) -> None:
         """Orbit the camera around the target.
@@ -113,6 +114,7 @@ class Camera4D:
         delta = np.array([dx, dy, dz, dw], dtype=np.float32)
         self.position += delta
         self.target += delta
+        self._update_view_matrix()
     
     def move_w(self, dw: float) -> None:
         """Move the camera along the W axis only.
@@ -121,18 +123,21 @@ class Camera4D:
             dw: Movement delta in W axis
         """
         self.position[3] += dw
+        self._update_view_matrix()
     
     def set_position(self, x: float, y: float, z: float, w: float = 0.0) -> None:
         """Set the camera position directly."""
         self.position = np.array([x, y, z, w], dtype=np.float32)
         self._orbit_distance = np.linalg.norm(self.position - self.target)
         self._update_orbit_angles()
+        self._update_view_matrix()
     
     def set_target(self, x: float, y: float, z: float, w: float = 0.0) -> None:
         """Set the camera target directly."""
         self.target = np.array([x, y, z, w], dtype=np.float32)
         self._orbit_distance = np.linalg.norm(self.position - self.target)
         self._update_orbit_angles()
+        self._update_view_matrix()
     
     def reset(self) -> None:
         """Reset camera to default position."""
@@ -141,6 +146,20 @@ class Camera4D:
         self._orbit_distance = 5.0
         self._orbit_yaw = 0.0
         self._orbit_pitch = 0.0
+        self._update_view_matrix()
+
+    def _update_view_matrix(self) -> None:
+        """Update the view matrix based on current camera orientation."""
+        self.view_matrix = create_look_at_matrix(
+            eye=self.position,
+            target=self.target,
+            up=self.up,
+        )
+
+    def world_to_view(self, point_4d: np.ndarray) -> np.ndarray:
+        """Transform a world-space point into view space."""
+        point = np.asarray(point_4d, dtype=np.float32)
+        return self.view_matrix @ (point - self.position)
     
     def project_4d_to_3d(self, point_4d: np.ndarray) -> np.ndarray:
         """Project a 4D point to 3D using perspective projection.
@@ -151,7 +170,7 @@ class Camera4D:
         Returns:
             3D point [x, y, z]
         """
-        x, y, z, w = point_4d
+        x, y, z, w = self.world_to_view(point_4d)
         
         # 4D perspective: scale based on W distance
         w_factor = 1.0 / (1.0 + abs(w) * self.w_perspective_factor)
@@ -188,7 +207,7 @@ class Camera4D:
         Returns:
             Tuple of (screen_x, screen_y, depth)
         """
-        x, y, z, w = point_4d
+        x, y, z, w = self.world_to_view(point_4d)
         
         # 4D perspective projection
         w_scale = 1.0 / (1.0 + abs(w) * self.w_perspective_factor)
@@ -219,13 +238,14 @@ class Camera4D:
             - depths: Array of shape (N,) with depth values
         """
         vertices_4d = np.asarray(vertices_4d, dtype=np.float32)
-        
-        w = vertices_4d[:, 3]
+        view_vertices = (vertices_4d - self.position) @ self.view_matrix.T
+
+        w = view_vertices[:, 3]
         w_scale = 1.0 / (1.0 + np.abs(w) * self.w_perspective_factor)
-        
-        proj_x = vertices_4d[:, 0] * w_scale
-        proj_y = vertices_4d[:, 1] * w_scale
-        proj_z = vertices_4d[:, 2] * w_scale
+
+        proj_x = view_vertices[:, 0] * w_scale
+        proj_y = view_vertices[:, 1] * w_scale
+        proj_z = view_vertices[:, 2] * w_scale
         
         screen_x = (proj_x * self.scale + self.screen_width / 2).astype(np.int32)
         screen_y = (-proj_y * self.scale + self.screen_height / 2).astype(np.int32)

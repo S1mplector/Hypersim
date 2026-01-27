@@ -34,6 +34,7 @@ from hypersim.game.evolution import EvolutionState, PolytopeForm, get_evolution_
 from hypersim.game.story.campaign import Campaign
 from hypersim.game.story.npc import NPCManager
 from hypersim.game.story.lore import Codex
+from hypersim.game.story.lore_expanded import discover_lore
 
 # Combat system (old)
 from hypersim.game.combat import (
@@ -165,7 +166,7 @@ class GameLoop:
         self.story = StoryManager()
         
         # Track dimension intro dialogues shown
-        self._dimension_intros_shown: set = set()
+        self._dimension_intros_shown: set = set(session.progression.shown_dimension_vignettes)
         
         # === COMBAT SYSTEM ===
         self.combat: Optional[CombatIntegration] = None
@@ -322,6 +323,11 @@ class GameLoop:
         
         # Trigger dimension intro dialogue (first time only)
         self._trigger_dimension_intro(dim_id)
+
+        # 1D-specific onboarding
+        if dim_id == "1d":
+            self._maybe_trigger_shift_tutorial()
+            self._maybe_trigger_terminus_cutscene()
         
         # Set evolution state for 4D renderer
         if dim_id == "4d":
@@ -340,6 +346,7 @@ class GameLoop:
             return
         
         self._dimension_intros_shown.add(dim_id)
+        self.session.progression.shown_dimension_vignettes.add(dim_id)
         
         # Special cinematic for Chapter 1 (1D) - First Point introduction
         if dim_id == "1d" and not self._chapter_1_cinematic_played:
@@ -348,15 +355,148 @@ class GameLoop:
             return
         
         # Map dimensions to dialogue sequences
-        intro_map = {
-            "2d": "intro_2d",
-            "3d": "intro_3d",
-            "4d": "intro_4d",
-        }
+        if dim_id in ("2d", "3d", "4d"):
+            self._play_dimension_vignette(dim_id)
+
+        # Outsider vignette when returning to a lower dimension after ascension
+        highest_order = self.session.progression.highest_unlocked_order(self.session.dimensions)
+        current_order = self.session.dimensions.get(dim_id).order
+        if highest_order > current_order and not self.session.progression.outsider_cutscene_played:
+            self._play_outsider_cutscene()
+
+    def _play_dimension_vignette(self, dim_id: str) -> None:
+        """Dimension entry vignette with philosophical framing."""
+        from hypersim.game.ui.textbox import TextBoxStyle
+        impulse = self.session.progression.intro_impulse or "lean"
+        impulse_phrase = {
+            "lean": "You lead with motion.",
+            "listen": "You lead with patience.",
+            "hesitate": "You measure before moving.",
+        }.get(impulse, "You carry the question of how to act.")
         
-        seq_id = intro_map.get(dim_id)
-        if seq_id:
-            self.dialogue.start_sequence(seq_id)
+        base_lines = [
+            {"text": "...", "style": TextBoxStyle.DIMENSION, "duration": 0.8},
+            {"text": impulse_phrase, "style": TextBoxStyle.NARRATOR},
+        ]
+        
+        if dim_id == "2d":
+            lines = base_lines + [
+                {"text": "A sideways axis tears open. Up and down invent privacy.", "speaker": "The Voice", "style": TextBoxStyle.DIMENSION},
+                {"text": "Welcome to the SECOND DIMENSION.", "speaker": "The Voice", "style": TextBoxStyle.DIMENSION},
+                {"text": "Move freely with WASD. Corners now matter; edges can enclose you.", "style": TextBoxStyle.TUTORIAL},
+            ]
+        elif dim_id == "3d":
+            lines = base_lines + [
+                {"text": "Depth unfolds. Shadows become volumes. You feel weight behind every surface.", "speaker": "The Voice", "style": TextBoxStyle.DIMENSION},
+                {"text": "Welcome to the THIRD DIMENSION.", "speaker": "The Voice", "style": TextBoxStyle.DIMENSION},
+                {"text": "Move with WASD, look with the mouse. Space to rise, Ctrl to descend.", "style": TextBoxStyle.TUTORIAL},
+            ]
+        else:  # 4d
+            lines = base_lines + [
+                {"text": "Time and space braid together. You sense insides and futures at once.", "speaker": "The Voice", "style": TextBoxStyle.DIMENSION},
+                {"text": "Welcome to the FOURTH DIMENSION.", "speaker": "The Voice", "style": TextBoxStyle.DIMENSION},
+                {"text": "Use Q and E to move along the W axis. Your polytope form will evolve.", "style": TextBoxStyle.TUTORIAL},
+            ]
+        
+        self._play_sequence_inline(f"vignette_{dim_id}", lines, pause=True)
+
+    def _play_outsider_cutscene(self) -> None:
+        """Show how lower dimensions perceive you after ascension."""
+        from hypersim.game.ui.textbox import TextBoxStyle
+        self.session.progression.outsider_cutscene_played = True
+        lines = [
+            {"text": "...", "style": TextBoxStyle.DIMENSION, "duration": 1.0},
+            {"text": "You return as a fracture in their sky.", "style": TextBoxStyle.NARRATOR},
+            {"text": "Voices overlap. Shapes flicker. Cause and effect blur.", "style": TextBoxStyle.NARRATOR},
+            {"text": "To them, you are a rumor of a higher place.", "speaker": "The Voice", "style": TextBoxStyle.DIMENSION},
+            {"text": "Move gently. You carry axes they cannot name.", "speaker": "The Voice", "style": TextBoxStyle.DIMENSION},
+        ]
+        self._play_sequence_inline("outsider_return", lines, pause=True)
+
+    def _maybe_trigger_shift_tutorial(self) -> None:
+        """Fire the 1D shift tutorial once."""
+        from hypersim.game.ui.textbox import TextBoxStyle
+        if self.session.progression.shift_tutorial_done:
+            return
+        self.session.progression.shift_tutorial_done = True
+        lines = [
+            {"text": "...", "style": TextBoxStyle.DIMENSION, "duration": 0.6},
+            {"text": "Instinct whispers: you can vanish for a heartbeat.", "speaker": "The Voice", "style": TextBoxStyle.DIMENSION},
+            {"text": "Tap Shift to slip aside and let collisions pass through.", "style": TextBoxStyle.TUTORIAL},
+            {"text": "This is the first muscle of ascent. It will cost focus; use it with intent.", "speaker": "The Voice", "style": TextBoxStyle.DIMENSION},
+        ]
+        self._play_sequence_inline("shift_tutorial_1d", lines, pause=True)
+
+    def _maybe_trigger_terminus_cutscene(self) -> None:
+        """Show the 1D Terminus cutscene with ascend/stay choice."""
+        from hypersim.game.ui.textbox import DialogueSequence, DialogueLine, TextBoxStyle
+        if self.session.progression.terminus_seen or self.dialogue.is_active:
+            return
+        self.session.progression.terminus_seen = True
+        # Unlock related lore
+        discover_lore("tessera_prologue")
+        discover_lore("monodia_sparks")
+        discover_lore("monodia_terminus")
+
+        seq_id = "terminus_cutscene"
+        lines = [
+            DialogueLine(text="The Line thins. Vibrations fade. You feel a pull sideways.", style=TextBoxStyle.NARRATOR),
+            DialogueLine(text="This is the Terminus.", speaker="The Voice", style=TextBoxStyle.DIMENSION),
+            DialogueLine(text="To step is to lose your home, to gain a width you cannot explain.", speaker="The Voice", style=TextBoxStyle.DIMENSION),
+            DialogueLine(
+                text="Do you ascend now?",
+                speaker="The Voice",
+                style=TextBoxStyle.DIMENSION,
+                choices=[
+                    ("Step into width.", "terminus_ascend"),
+                    ("Stay on the Line for now.", "terminus_stay"),
+                ],
+            ),
+        ]
+        seq = DialogueSequence(
+            id=seq_id,
+            lines=lines,
+            pause_game=True,
+        )
+        self.dialogue.register_sequence(seq)
+        self.dialogue.register_event("terminus_ascend", self._handle_terminus_ascend)
+        self.dialogue.register_event("terminus_stay", self._handle_terminus_stay)
+        self.dialogue.start_sequence(seq_id)
+
+    def _handle_terminus_ascend(self) -> None:
+        """Handle immediate ascension from the Terminus cutscene."""
+        self.dialogue.stop()
+        # Ascend to next dimension and reload
+        if self.session.ascend():
+            self._reload_dimension()
+
+    def _handle_terminus_stay(self) -> None:
+        """Handle choosing to stay on the Line."""
+        self.dialogue.stop()
+        self.overlays.notify("You remain on the Line—for now.", duration=2.5, color=(200, 180, 255))
+
+    def _play_sequence_inline(self, seq_id: str, lines: list, pause: bool = True) -> None:
+        """Register and start a one-off dialogue sequence."""
+        from hypersim.game.ui.textbox import DialogueSequence, DialogueLine, TextBoxStyle
+        if self.dialogue.is_active:
+            return
+        dl_lines = []
+        for item in lines:
+            dl_lines.append(DialogueLine(
+                speaker=item.get("speaker", ""),
+                text=item.get("text", ""),
+                style=item.get("style", TextBoxStyle.NARRATOR),
+                choices=item.get("choices", []),
+                duration=item.get("duration", 0.0),
+                typing_speed=item.get("typing_speed", 30.0),
+            ))
+        seq = DialogueSequence(
+            id=seq_id,
+            lines=dl_lines,
+            pause_game=pause,
+        )
+        self.dialogue.register_sequence(seq)
+        self.dialogue.start_sequence(seq_id)
     
     def _start_first_point_cinematic(self) -> None:
         """Start the First Point cinematic for Chapter 1."""

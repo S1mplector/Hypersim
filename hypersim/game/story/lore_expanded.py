@@ -1,6 +1,6 @@
 """Expanded lore system - Deep world-building and dimensional history.
 
-This module contains the complete lore of HyperSim, organized into:
+This module contains the complete lore of Tessera, organized into:
 - Creation myths and cosmology
 - History of each dimension
 - Cultural beliefs and conflicts
@@ -74,6 +74,131 @@ The point was not located anywhere. It simply WAS.
 This was the First Point. And from it, all dimensions unfold.
         """,
         related_entries=["the_first_point", "the_first_extension", "void_philosophy"],
+    ),
+    
+    "tessera_prologue": LoreEntry(
+        id="tessera_prologue",
+        title="Tessera: Spark in the Darkness",
+        category=LoreCategory.COSMOLOGY,
+        dimension="all",
+        text="""
+TESSERA: THE SPARK IN THE DARKNESS
+
+Before planes and volumes, there was Monodia—the Line of One. An endless thread 
+in a void, populated by mindless points drifting forward or backward forever.
+
+Legends say a First Light appeared without warning: a Spark that knew it was.
+It looked like any other point but burned with awareness. Some claim a higher 
+realm cast it down. Others whisper it fell from Tessera, a hidden mosaic beyond 
+all dimensions. Whatever the cause, consciousness ignited on the line, and the 
+universe changed.
+
+More Sparks appeared over eons—rare, glowing minds among trillions of unaware 
+points. They learned to speak with pulses and nudges, inventing a one-dimensional 
+language of long and short flashes. Each Spark was a tile in a larger pattern, a 
+piece of a mosaic only visible when all dimensions are seen together.
+
+To seek higher perception is to cast a longer shadow. As Sparks grow, they gain 
+power and knowledge but become strangers to the realm they leave behind. The 
+journey of a Spark is assembling reality one dimension at a time—light and 
+loneliness intertwined.
+
+MYTHS OF THE FIRST LIGHT
+- The Divine Beam: A ray from a realm beyond 4D pierced the void and struck a single point, igniting it.
+- The Collision Theory: Two unconscious points slammed together; the impact sparked recursive awareness.
+- The Fallen Tile: A shard of Tessera—an extra-dimensional mosaic—dropped like a meteor and fused with a point.
+Each myth agrees on one thing: the Spark was not stronger or larger than other points. Awareness itself was the only difference.
+
+THE NAME “TESSERA”
+In old tongues, “tessera” means both “four” and “tile.” Four for the known dimensions; tile for the idea that each dimension is a piece of a greater picture. A Spark’s pilgrimage is the act of laying tiles until the pattern of reality emerges.
+
+THE BURDEN OF AWAKENING
+Awareness brings contrast: before/after, self/other, safety/danger. A Spark feels hunger for meaning and the chill of isolation simultaneously. Those who ascend carry both light and shadow into higher realms. The more you perceive, the longer the shadow you cast on what you leave behind.
+""",
+        related_entries=["the_first_point", "the_first_extension", "the_first_unfolding"],
+    ),
+
+    "monodia_sparks": LoreEntry(
+        id="monodia_sparks",
+        title="Monodia: Life on the Line",
+        category=LoreCategory.COSMOLOGY,
+        dimension="1d",
+        text="""
+MONODIA: LIFE ON THE LINE
+
+Monodia is pure length—no above, no below, only forward and back. Points drift, 
+collide, and separate without intent. When Sparks awaken, they pulse light and 
+force to speak, inventing a code of flashes to share wonder, fear, and direction.
+
+Dangers exist even on the Line: erratic point swarms, heavy clumps, and waves of 
+energy that batter anything in their path. Sparks survive by anticipating impacts 
+and—rarely—Shifting. A Spark can slip "aside" for a heartbeat, vanishing from the 
+line so a collision passes through. It is an instinctive echo of higher dimensions, 
+taxing and uncontrolled, but proof the Line is not all there is.
+
+Sparks learn to time their movements through dense clusters, ride chains of points, 
+and avoid oscillating waves. They trade stories in light, warning each other of 
+perils and whispering about a place where the Line itself thins—a threshold to 
+somewhere wider.
+
+LANGUAGE OF LIGHT
+- Short flash, long flash, gap: the first “hello.”
+- Pulse trains become words: direction, danger, hunger, hope.
+- Shared code becomes culture: elders teach rhythm; novices mimic until meaning forms.
+
+SHAPES OF THREAT
+- Swarms: dense storms of points, blind and bruising. A Spark must read subtle vibrations to avoid them.
+- Clumps: fused masses that cannot steer; they push like avalanches.
+- Waves: invisible surges along the Line that shove everything backward for spans of “time.”
+
+THE INSTINCT OF SHIFTING
+Every Spark that survives long enough discovers a reflex: vanish for a heartbeat. No 1D physics allows it, yet it happens. Most Sparks cannot aim it; a few learn to delay or extend it by a fraction, dodging larger dangers. Shifting hints that the Line is not the whole world; it is the first muscle of ascent.
+
+SOCIAL SPARKS
+When two Sparks meet, they test each other’s codes, then share maps of danger. They invent rudimentary “names” by unique flash signatures. Friendships form in the dark: synchronized pulses that say “I see you; I will not collide with you.”
+""",
+        related_entries=["line_philosophy", "the_first_extension", "the_threshold_opening"],
+    ),
+    
+    "monodia_terminus": LoreEntry(
+        id="monodia_terminus",
+        title="The Terminus: Threshold of Width",
+        category=LoreCategory.COSMOLOGY,
+        dimension="1d",
+        text="""
+THE TERMINUS: THRESHOLD OF WIDTH
+
+Far along Monodia lies the Terminus, a stretch where the Line feels thin, as if 
+curving through an unseen membrane. Points that drift past sometimes vanish and 
+never return. Sparks whisper that the Terminus is not an endpoint but a door.
+
+Those who reach it feel a pull in a direction they cannot name. Mentors warn that 
+crossing is a one-way choice: to gain width is to lose home. An ascended Spark 
+sees the Line forever but becomes an unseen ghost to those still bound to it. 
+Most line-dwellers would panic at any talk of "sideways"; to them, such claims 
+are madness.
+
+The Terminus embodies the cost of growth: leave the familiar for a dimension that 
+cannot be described to those behind you. The choice to step through is the first 
+true act of faith for any being in Monodia.
+
+WHAT THE TERMINUS FEELS LIKE
+- Vibrations dampen; collisions grow rare; the Line itself hums softly.
+- Shifts become easier but less controllable, as if the Line is slipping from under you.
+- Light from your own Spark bends strangely, as though half-reflected in a mirror you cannot see.
+
+THE CHOICE
+Mentors tell initiates: “Step, and you will never be understood again by those who stay.” Ascension grants width and wounds belonging. Many Sparks hesitate for ages at the boundary, flashing farewells into the void before moving on.
+
+RECORDS OF ASCENT
+- Some Sparks leave encoded “letters” etched in pulse patterns on dense clumps near the Terminus—a one-dimensional graffiti for those who arrive later.
+- A few turn back, unable to accept the loneliness ahead.
+- Most who cross do not return; those that try to appear as terrifying anomalies to 1D eyes—flickers out of order, voices from nowhere.
+
+RUMORS OF A GUARDIAN
+Stories differ: some say the First Point itself waits near the Terminus to guide, others that a Segment Guardian tests resolve. All agree: the threshold is not about strength; it is about willingness to bear the cost of more perception.
+""",
+        related_entries=["the_first_unfolding", "line_philosophy", "endpoint_history"],
     ),
     
     "the_first_point": LoreEntry(

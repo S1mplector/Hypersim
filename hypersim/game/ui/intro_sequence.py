@@ -25,6 +25,7 @@ class IntroPhase(Enum):
     """Phases of the intro sequence."""
     FADE_UI = auto()           # Fade out menu UI, leave shape
     PRELUDE = auto()           # Philosophical preface before shape reveal
+    MEMORY_FLASH = auto()      # Memory cutaway about Monodia/First Point
     SHAPE_4D = auto()          # Show 4D with dialogue
     TRANSITION_4D_3D = auto()  # Morph to 3D
     SHAPE_3D = auto()          # Show 3D with dialogue
@@ -73,18 +74,26 @@ INTRO_DIALOGUES: Dict[IntroPhase, List[DialogueLine]] = {
         DialogueLine("So we begin gently, before the shape arrives.", speaker="The Voice", voice_id="narrator"),
         DialogueLine("We begin with the question that makes a universe possible.", speaker="The Voice", voice_id="narrator"),
         DialogueLine("What is it, to exist?", speaker="The Voice", voice_id="narrator"),
+        DialogueLine("Hold that question. It will follow you into every dimension.", speaker="The Voice", voice_id="narrator"),
+        DialogueLine("You are about to witness how those temptations take shape.", speaker="The Voice", voice_id="narrator"),
+    ],
+    IntroPhase.MEMORY_FLASH: [
+        DialogueLine("", duration=0.4),
+        DialogueLine("A memory not yours flickers.", speaker="???", voice_id="void_echo"),
+        DialogueLine("Monodia. The Line of One. Sparks colliding in darkness.", speaker="???", voice_id="void_echo"),
+        DialogueLine("A mentor waits at a threshold where the line thins.", speaker="???", voice_id="void_echo"),
+        DialogueLine("They ask a question that shapes destinies:", speaker="The Voice", voice_id="narrator"),
         DialogueLine(
-            "Answer, even if quietly.",
+            "When the unknown pulls, what is your first impulse?",
             speaker="The Voice",
             voice_id="narrator",
             choices=[
-                ("To perceive.", "prelude_perceive"),
-                ("To relate.", "prelude_relate"),
-                ("To endure.", "prelude_endure"),
+                ("Lean toward it.", "impulse_lean"),
+                ("Listen before moving.", "impulse_listen"),
+                ("Hesitate and observe.", "impulse_hesitate"),
             ],
         ),
-        DialogueLine("Hold that question. It will follow you into every dimension.", speaker="The Voice", voice_id="narrator"),
-        DialogueLine("You are about to witness how those temptations take shape.", speaker="The Voice", voice_id="narrator"),
+        DialogueLine("Whatever you choose now will echo later.", speaker="The Voice", voice_id="narrator"),
     ],
     IntroPhase.SHAPE_4D: [
         DialogueLine("", duration=1.0),
@@ -208,6 +217,15 @@ INTRO_BRANCHES: Dict[str, List[DialogueLine]] = {
     "point_listen": [
         DialogueLine("You would have heard it: a faint hum of possible axes.", speaker="The First Point", voice_id="first_point"),
         DialogueLine("That hum is the future, asking if you will answer.", speaker="The First Point", voice_id="first_point"),
+    ],
+    "impulse_lean": [
+        DialogueLine("Leaning is momentum. It breaks stasis, even if you stumble.", speaker="The Voice", voice_id="narrator"),
+    ],
+    "impulse_listen": [
+        DialogueLine("Listening is patience. You hear the shape of what calls you.", speaker="The Voice", voice_id="narrator"),
+    ],
+    "impulse_hesitate": [
+        DialogueLine("Hesitation is data. You measure before you move.", speaker="The Voice", voice_id="narrator"),
     ],
 }
 
@@ -689,6 +707,7 @@ class IntroSequence:
         
         self.complete = False
         self.on_complete: Optional[Callable] = None
+        self.impulse_choice: str = ""
         
         # Background
         self.bg_color = (5, 5, 15)
@@ -704,6 +723,7 @@ class IntroSequence:
         phase_order = [
             IntroPhase.FADE_UI,
             IntroPhase.PRELUDE,
+            IntroPhase.MEMORY_FLASH,
             IntroPhase.SHAPE_4D,
             IntroPhase.TRANSITION_4D_3D,
             IntroPhase.SHAPE_3D,
@@ -800,6 +820,14 @@ class IntroSequence:
         if branch_id and branch_id in INTRO_BRANCHES:
             insert_at = self.dialogue_index + 1
             self.current_dialogues[insert_at:insert_at] = INTRO_BRANCHES[branch_id]
+        # Capture intro impulse choice
+        impulse_map = {
+            "impulse_lean": "lean",
+            "impulse_listen": "listen",
+            "impulse_hesitate": "hesitate",
+        }
+        if branch_id in impulse_map:
+            self.impulse_choice = impulse_map[branch_id]
         # Advance to the next line after choice
         self.dialogue_index += 1
         if self.dialogue_index < len(self.current_dialogues):
@@ -859,13 +887,13 @@ class IntroSequence:
         self.screen.fill(self.bg_color)
         
         # Shape
-        if self.phase not in [IntroPhase.FADE_UI, IntroPhase.PRELUDE]:
+        if self.phase not in [IntroPhase.FADE_UI, IntroPhase.PRELUDE, IntroPhase.MEMORY_FLASH]:
             center = (self.width // 2, self.height // 2 - 50)
             self.shape.draw(self.screen, center, scale=120)
         
         # Dimension label
         dim_names = {4: "4D - HYPERSPACE", 3: "3D - VOLUME", 2: "2D - PLANE", 1: "1D - LINE"}
-        if self.shape.dimension in dim_names and self.phase not in [IntroPhase.FADE_UI, IntroPhase.PRELUDE, IntroPhase.FADE_OUT]:
+        if self.shape.dimension in dim_names and self.phase not in [IntroPhase.FADE_UI, IntroPhase.PRELUDE, IntroPhase.MEMORY_FLASH, IntroPhase.FADE_OUT]:
             font = pygame.font.Font(None, 36)
             label = font.render(dim_names[self.shape.dimension], True, self.shape.colors[self.shape.dimension])
             label_rect = label.get_rect(center=(self.width // 2, 80))

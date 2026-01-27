@@ -19,6 +19,11 @@ class ProgressionState:
     active_node_id: Optional[str] = None
     mission_progress: Dict[str, Dict[str, float]] = field(default_factory=dict)
     unlocked_abilities: Set[str] = field(default_factory=set)
+    intro_impulse: str = ""              # Chosen impulse from intro (lean/listen/hesitate)
+    terminus_seen: bool = False          # Whether the 1D Terminus cutscene was seen
+    shift_tutorial_done: bool = False    # Whether the 1D shift tutorial fired
+    outsider_cutscene_played: bool = False  # First return-to-lower-dim vignette
+    shown_dimension_vignettes: Set[str] = field(default_factory=set)  # Intro vignettes per dimension
     
     # 4D Evolution tracking
     evolution_form: int = 0  # PolytopeForm enum value

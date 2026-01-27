@@ -28,10 +28,13 @@ def main():
     
     # Default: run the fancy menu
     from hypersim.game.ui.fancy_menu import run_tessera_menu
-    selected_mode = run_tessera_menu()
+    selected_data = run_tessera_menu()
     
-    if selected_mode:
-        start_campaign(selected_mode)
+    if selected_data:
+        if isinstance(selected_data, dict):
+            start_campaign(selected_data.get("mode", ""), intro_impulse=selected_data.get("intro_impulse", ""))
+        else:
+            start_campaign(selected_data)
 
 
 def run_launcher():
@@ -41,7 +44,7 @@ def run_launcher():
     launcher.run()
 
 
-def start_campaign(mode: str):
+def start_campaign(mode: str, intro_impulse: str = ""):
     """Start the campaign with proper chapter system integration."""
     pygame.init()
     pygame.mixer.init()
@@ -58,7 +61,7 @@ def start_campaign(mode: str):
     
     # Handle mode
     if mode == "new_game":
-        progression = ProgressionState()
+        progression = ProgressionState(intro_impulse=intro_impulse)
         campaign = reset_campaign()  # Fresh campaign
         print("Starting new campaign...")
     elif mode == "load_save":

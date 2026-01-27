@@ -22,6 +22,11 @@ def save_progression(prog: ProgressionState, path: Path | str = DEFAULT_SAVE_PAT
         "active_node_id": prog.active_node_id,
         "mission_progress": prog.mission_progress,
         "unlocked_abilities": list(prog.unlocked_abilities),
+        "intro_impulse": prog.intro_impulse,
+        "terminus_seen": prog.terminus_seen,
+        "shift_tutorial_done": prog.shift_tutorial_done,
+        "outsider_cutscene_played": prog.outsider_cutscene_played,
+        "shown_dimension_vignettes": list(prog.shown_dimension_vignettes),
         # 4D Evolution
         "evolution_form": prog.evolution_form,
         "evolution_xp": prog.evolution_xp,
@@ -46,6 +51,11 @@ def load_progression(path: Path | str = DEFAULT_SAVE_PATH) -> Optional[Progressi
         active_node_id=data.get("active_node_id"),
         mission_progress=data.get("mission_progress", {}),
         unlocked_abilities=set(data.get("unlocked_abilities", [])),
+        intro_impulse=data.get("intro_impulse", ""),
+        terminus_seen=data.get("terminus_seen", False),
+        shift_tutorial_done=data.get("shift_tutorial_done", False),
+        outsider_cutscene_played=data.get("outsider_cutscene_played", False),
+        shown_dimension_vignettes=set(data.get("shown_dimension_vignettes", [])),
         # 4D Evolution
         evolution_form=data.get("evolution_form", 0),
         evolution_xp=data.get("evolution_xp", 0),
