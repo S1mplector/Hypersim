@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Callable, Dict, List, Optional, Tuple
+import random
 
 import pygame
 import numpy as np
@@ -39,12 +40,16 @@ class MainMenu:
         self.state = MenuState.TITLE
         self.selected_index = 0
         self.animation_time = 0.0
+        self._last_state = self.state
+        self._selection_y = 0.0
+        self._selection_alpha = 0.0
         
         # Menu items per state
         self._menus: Dict[MenuState, List[MenuItem]] = {
             MenuState.MAIN: [
-                MenuItem("new_game", "New Game", action=self._new_game),
-                MenuItem("load_save", "Load Save", action=self._load_save),
+                MenuItem("new_game", "New Adventure", action=self._new_game),
+                MenuItem("load_save", "Continue", action=self._load_save),
+                MenuItem("quickplay", "Quickplay", action=self._quickplay),
                 MenuItem("settings", "Settings", submenu="settings"),
                 MenuItem("credits", "Credits", submenu="credits"),
                 MenuItem("quit", "Quit", action=self._quit),
@@ -67,23 +72,44 @@ class MainMenu:
         # 4D tesseract animation
         self._tesseract_rotation = 0.0
         self._tesseract_vertices = self._generate_tesseract()
+        self._tesseract_edges = self._get_tesseract_edges()
         
         # Fonts
         pygame.font.init()
         self._font_title = pygame.font.Font(None, 96)
-        self._font_subtitle = pygame.font.Font(None, 36)
+        self._font_subtitle = pygame.font.Font(None, 38)
         self._font_menu = pygame.font.Font(None, 42)
         self._font_small = pygame.font.Font(None, 24)
+        self._font_hint = pygame.font.Font(None, 22)
         
         # Colors
         self.bg_color = (5, 8, 15)
         self.title_color = (100, 180, 255)
-        self.menu_color = (180, 180, 200)
-        self.selected_color = (255, 220, 100)
+        self.menu_color = (190, 190, 210)
+        self.selected_color = (255, 230, 140)
         self.disabled_color = (80, 80, 100)
+        self.panel_color = (20, 24, 40)
+        self.panel_border = (50, 70, 110)
         
         # Title animation
         self._title_pulse = 0.0
+        
+        # Background overlays
+        self._gradient_surface = self._build_vertical_gradient(
+            self.width,
+            self.height,
+            (6, 10, 18),
+            (2, 4, 10),
+        )
+        self._vignette_surface = self._build_vignette(self.width, self.height)
+        
+        # Starfield
+        self._rng = random.Random(17)
+        self._stars = self._generate_starfield(160)
+        
+        # Cached menu layout
+        self._item_rects: List[pygame.Rect] = []
+        self._menu_panel_rect: Optional[pygame.Rect] = None
     
     def _generate_tesseract(self) -> np.ndarray:
         """Generate tesseract vertices."""
@@ -94,6 +120,50 @@ class MainMenu:
                     for x in [-1, 1]:
                         vertices.append([x, y, z, w])
         return np.array(vertices, dtype=float)
+
+    def _generate_starfield(self, count: int) -> List[Tuple[float, float, float, float, float, float]]:
+        """Generate a simple starfield for background depth."""
+        stars = []
+        for _ in range(count):
+            x = self._rng.uniform(0, self.width)
+            y = self._rng.uniform(0, self.height)
+            depth = self._rng.uniform(0.2, 1.0)
+            size = self._rng.uniform(0.6, 2.0)
+            phase = self._rng.uniform(0.0, math.tau)
+            speed = self._rng.uniform(0.6, 1.8)
+            stars.append((x, y, depth, size, phase, speed))
+        return stars
+
+    def _build_vertical_gradient(
+        self,
+        width: int,
+        height: int,
+        top: Tuple[int, int, int],
+        bottom: Tuple[int, int, int],
+    ) -> pygame.Surface:
+        """Create a vertical gradient surface."""
+        surf = pygame.Surface((width, height))
+        for y in range(height):
+            t = y / max(1, height - 1)
+            color = (
+                int(top[0] + (bottom[0] - top[0]) * t),
+                int(top[1] + (bottom[1] - top[1]) * t),
+                int(top[2] + (bottom[2] - top[2]) * t),
+            )
+            pygame.draw.line(surf, color, (0, y), (width, y))
+        return surf
+
+    def _build_vignette(self, width: int, height: int) -> pygame.Surface:
+        """Create a subtle vignette to focus the center."""
+        surf = pygame.Surface((width, height), pygame.SRCALPHA)
+        center = (width // 2, height // 2)
+        max_radius = int(max(width, height) * 0.7)
+        for i in range(12):
+            radius = int(max_radius * (0.55 + i * 0.04))
+            alpha = int(18 + i * 12)
+            color = (0, 0, 0, min(120, alpha))
+            pygame.draw.circle(surf, color, center, radius, width=140)
+        return surf
     
     def _get_tesseract_edges(self) -> List[Tuple[int, int]]:
         """Get tesseract edge connections."""
@@ -110,6 +180,20 @@ class MainMenu:
         self.animation_time += dt
         self._tesseract_rotation += dt * 0.3
         self._title_pulse += dt * 2.0
+
+        if self.state != self._last_state:
+            self._last_state = self.state
+            self._selection_y = 0.0
+            self._selection_alpha = 0.0
+
+        menu_items, rects = self._menu_layout()
+        if rects and 0 <= self.selected_index < len(rects):
+            target_y = rects[self.selected_index].centery
+            if self._selection_y == 0.0:
+                self._selection_y = target_y
+            else:
+                self._selection_y += (target_y - self._selection_y) * min(1.0, dt * 10.0)
+            self._selection_alpha = min(1.0, self._selection_alpha + dt * 3.0)
     
     def handle_event(self, event: pygame.event.Event) -> bool:
         """Handle input. Returns True if event consumed."""
@@ -137,8 +221,21 @@ class MainMenu:
                     self.selected_index = 0
                     return True
         
+        elif event.type == pygame.MOUSEMOTION:
+            if self.state != MenuState.TITLE:
+                if self._update_hover(event.pos):
+                    return True
+
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if self.state == MenuState.TITLE:
+                self.state = MenuState.MAIN
+                self.selected_index = 0
+                return True
+            if event.button == 1:
+                if self._update_hover(event.pos):
+                    self._select_current()
+                    return True
+            if event.button == 3 and self.state != MenuState.MAIN:
                 self.state = MenuState.MAIN
                 self.selected_index = 0
                 return True
@@ -186,9 +283,12 @@ class MainMenu:
         """Draw the menu."""
         # Clear background
         self.screen.fill(self.bg_color)
+        self.screen.blit(self._gradient_surface, (0, 0))
         
         # Draw animated tesseract background
         self._draw_tesseract_background()
+        self._draw_starfield()
+        self.screen.blit(self._vignette_surface, (0, 0))
         
         # Draw based on state
         if self.state == MenuState.TITLE:
@@ -203,11 +303,14 @@ class MainMenu:
         # Project tesseract to 2D
         angle_xw = self._tesseract_rotation
         angle_yz = self._tesseract_rotation * 0.7
+        angle_xy = self._tesseract_rotation * 0.4
         
         cos_xw = math.cos(angle_xw)
         sin_xw = math.sin(angle_xw)
         cos_yz = math.cos(angle_yz)
         sin_yz = math.sin(angle_yz)
+        cos_xy = math.cos(angle_xy)
+        sin_xy = math.sin(angle_xy)
         
         projected = []
         for v in self._tesseract_vertices:
@@ -218,33 +321,63 @@ class MainMenu:
             # YZ rotation
             y = v[1] * cos_yz - v[2] * sin_yz
             z = v[1] * sin_yz + v[2] * cos_yz
+
+            # XY rotation
+            x2 = x * cos_xy - y * sin_xy
+            y2 = x * sin_xy + y * cos_xy
             
             # 4D to 2D projection
-            scale = 120
+            scale = 140 + 12 * math.sin(self.animation_time * 0.7)
             perspective = 3.0 / (3.0 + w * 0.5)
+            perspective = max(0.25, min(1.6, perspective))
             
-            px = int(self.width // 2 + x * scale * perspective)
-            py = int(self.height // 2 - y * scale * perspective)
+            center_x = self.width // 2 + int(math.sin(self.animation_time * 0.6) * 28)
+            center_y = self.height // 2 + int(math.cos(self.animation_time * 0.4) * 18)
+            
+            px = int(center_x + x2 * scale * perspective)
+            py = int(center_y - y2 * scale * perspective)
             
             projected.append((px, py, perspective))
         
         # Draw edges with depth-based color
-        edges = self._get_tesseract_edges()
-        for i, j in edges:
+        for i, j in self._tesseract_edges:
             p1, p2 = projected[i], projected[j]
-            alpha = min(1.0, (p1[2] + p2[2]) / 2) * 0.3
+            depth = (p1[2] + p2[2]) / 2
+            intensity = min(1.0, max(0.15, depth))
             color = (
-                int(50 * alpha),
-                int(80 * alpha),
-                int(150 * alpha),
+                int(40 + 120 * intensity),
+                int(60 + 150 * intensity),
+                int(120 + 180 * intensity),
             )
-            pygame.draw.line(self.screen, color, (p1[0], p1[1]), (p2[0], p2[1]), 1)
+            width = 1 if depth < 1.1 else 2
+            pygame.draw.line(self.screen, color, (p1[0], p1[1]), (p2[0], p2[1]), width)
         
         # Draw vertices
         for px, py, depth in projected:
-            radius = max(1, int(3 * depth * 0.3))
-            color = (int(80 * depth * 0.4), int(120 * depth * 0.4), int(200 * depth * 0.4))
+            radius = max(1, int(2 + depth * 2.0))
+            glow = min(1.0, depth)
+            color = (
+                int(70 + 120 * glow),
+                int(110 + 130 * glow),
+                int(170 + 160 * glow),
+            )
             pygame.draw.circle(self.screen, color, (px, py), radius)
+
+        # Dimensional rings
+        ring_color = (30, 50, 80)
+        ring_radius = int(min(self.width, self.height) * 0.32)
+        ring_offset = int(8 * math.sin(self.animation_time * 0.9))
+        pygame.draw.circle(self.screen, ring_color, (self.width // 2, self.height // 2 + ring_offset), ring_radius, 1)
+        pygame.draw.circle(self.screen, ring_color, (self.width // 2, self.height // 2 - ring_offset), ring_radius - 40, 1)
+
+    def _draw_starfield(self) -> None:
+        """Draw subtle twinkling stars in the background."""
+        for x, y, depth, size, phase, speed in self._stars:
+            twinkle = 0.6 + 0.4 * math.sin(self.animation_time * speed + phase)
+            brightness = int(40 + 140 * twinkle * depth)
+            color = (brightness, brightness, min(255, brightness + 30))
+            radius = max(1, int(size * (0.7 + twinkle * 0.6)))
+            self.screen.fill(color, (int(x), int(y), radius, radius))
     
     def _draw_title_screen(self) -> None:
         """Draw the title screen."""
@@ -255,17 +388,27 @@ class MainMenu:
         # Main title
         title = self._font_title.render("HYPERSIM", True, title_color)
         title_rect = title.get_rect(center=(self.width // 2, self.height // 3))
+        shadow = self._font_title.render("HYPERSIM", True, (20, 30, 45))
+        shadow_rect = shadow.get_rect(center=(self.width // 2 + 2, self.height // 3 + 2))
+        self.screen.blit(shadow, shadow_rect)
         self.screen.blit(title, title_rect)
+        pygame.draw.line(
+            self.screen,
+            (60, 100, 150),
+            (self.width // 2 - 140, title_rect.bottom + 12),
+            (self.width // 2 + 140, title_rect.bottom + 12),
+            2,
+        )
         
         # Subtitle
-        subtitle = self._font_subtitle.render("Cross-Dimensional Adventure", True, (150, 150, 180))
-        subtitle_rect = subtitle.get_rect(center=(self.width // 2, self.height // 3 + 60))
+        subtitle = self._font_subtitle.render("Cross-Dimensional Adventure", True, (150, 160, 190))
+        subtitle_rect = subtitle.get_rect(center=(self.width // 2, self.height // 3 + 68))
         self.screen.blit(subtitle, subtitle_rect)
         
         # Press any key
         blink = int(self.animation_time * 2) % 2 == 0
         if blink:
-            prompt = self._font_small.render("Press any key to continue", True, (120, 120, 140))
+            prompt = self._font_small.render("Press any key to continue", True, (130, 140, 160))
             prompt_rect = prompt.get_rect(center=(self.width // 2, self.height * 2 // 3))
             self.screen.blit(prompt, prompt_rect)
         
@@ -278,7 +421,6 @@ class MainMenu:
         # Title
         state_titles = {
             MenuState.MAIN: "HYPERSIM",
-            MenuState.CAMPAIGN: "CAMPAIGN",
             MenuState.SETTINGS: "SETTINGS",
         }
         
@@ -288,9 +430,37 @@ class MainMenu:
         self.screen.blit(title, title_rect)
         
         # Menu items
-        menu_items = self._menus.get(self.state, [])
-        start_y = self.height // 2 - (len(menu_items) * 50) // 2
+        menu_items, rects = self._menu_layout()
+        if not menu_items:
+            return
+        start_y = rects[0].centery
+        spacing = rects[1].centery - rects[0].centery if len(rects) > 1 else 52
+
+        # Panel backdrop
+        panel_width = min(560, int(self.width * 0.65))
+        panel_height = int(spacing * len(menu_items) + 40)
+        panel_rect = pygame.Rect(0, 0, panel_width, panel_height)
+        panel_rect.center = (self.width // 2, start_y + (len(menu_items) - 1) * spacing // 2)
+        self._menu_panel_rect = panel_rect
+        panel_surface = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
+        panel_surface.fill((*self.panel_color, 200))
+        pygame.draw.rect(panel_surface, (*self.panel_border, 120), panel_surface.get_rect(), 2, border_radius=14)
+        self.screen.blit(panel_surface, panel_rect.topleft)
+
+        # Animated selection highlight
+        if 0 <= self.selected_index < len(rects):
+            highlight_rect = rects[self.selected_index].copy()
+            highlight_rect.width = int(panel_width * 0.92)
+            highlight_rect.height = rects[self.selected_index].height + 6
+            highlight_rect.centerx = panel_rect.centerx
+            highlight_rect.centery = int(self._selection_y)
+            glow_surface = pygame.Surface(highlight_rect.size, pygame.SRCALPHA)
+            glow_alpha = int(120 * self._selection_alpha)
+            glow_surface.fill((60, 90, 140, glow_alpha))
+            pygame.draw.rect(glow_surface, (120, 170, 220, glow_alpha), glow_surface.get_rect(), 2, border_radius=12)
+            self.screen.blit(glow_surface, highlight_rect.topleft)
         
+        self._item_rects = rects
         for i, item in enumerate(menu_items):
             is_selected = i == self.selected_index
             
@@ -303,23 +473,30 @@ class MainMenu:
             
             # Selection indicator
             if is_selected:
-                indicator = "▸ "
+                indicator = ">"
                 # Glow effect
-                glow_surface = self._font_menu.render(item.label, True, (255, 255, 200))
-                glow_surface.set_alpha(50)
-                glow_rect = glow_surface.get_rect(center=(self.width // 2 + 2, start_y + i * 50 + 2))
+                glow_surface = self._font_menu.render(item.label, True, (255, 255, 210))
+                glow_surface.set_alpha(60)
+                glow_rect = glow_surface.get_rect(center=(self.width // 2 + 6, rects[i].centery + 2))
                 self.screen.blit(glow_surface, glow_rect)
             else:
                 indicator = "  "
             
-            text = self._font_menu.render(indicator + item.label, True, color)
-            text_rect = text.get_rect(center=(self.width // 2, start_y + i * 50))
+            label = f"{indicator}  {item.label}"
+            text = self._font_menu.render(label, True, color)
+            text_rect = text.get_rect(center=(self.width // 2, rects[i].centery))
             self.screen.blit(text, text_rect)
         
         # Navigation hint
-        hint = self._font_small.render("↑↓: Navigate | Enter: Select | ESC: Back", True, (80, 80, 100))
-        hint_rect = hint.get_rect(center=(self.width // 2, self.height - 40))
+        hint_text = "Arrows/Mouse: Navigate   Enter/Click: Select   ESC: Back"
+        hint = self._font_hint.render(hint_text, True, (90, 100, 120))
+        hint_rect = hint.get_rect(center=(self.width // 2, self.height - 36))
         self.screen.blit(hint, hint_rect)
+        
+        # Breadcrumb
+        if self.state != MenuState.MAIN:
+            crumb = self._font_small.render("Main Menu  >  " + title_text.title(), True, (90, 100, 120))
+            self.screen.blit(crumb, (28, 24))
     
     def _draw_credits(self) -> None:
         """Draw credits screen."""
@@ -351,28 +528,66 @@ class MainMenu:
             y += 30
         
         # Back hint
-        hint = self._font_small.render("Press ESC or Enter to return", True, (80, 80, 100))
+        hint = self._font_small.render("Press ESC or Enter to return", True, (90, 100, 120))
         hint_rect = hint.get_rect(center=(self.width // 2, self.height - 40))
         self.screen.blit(hint, hint_rect)
         
         # Check for back
-        menu_items = self._menus.get(self.state, [])
-        start_y = self.height - 100
+        menu_items, rects = self._menu_layout()
+        self._item_rects = rects
         for i, item in enumerate(menu_items):
             is_selected = i == self.selected_index
             color = self.selected_color if is_selected else self.menu_color
-            text = self._font_menu.render("▸ " + item.label if is_selected else "  " + item.label, True, color)
-            text_rect = text.get_rect(center=(self.width // 2, start_y))
+            prefix = "> " if is_selected else "  "
+            text = self._font_menu.render(prefix + item.label, True, color)
+            text_rect = text.get_rect(center=(self.width // 2, rects[i].centery))
             self.screen.blit(text, text_rect)
+
+    def _menu_layout(self) -> Tuple[List[MenuItem], List[pygame.Rect]]:
+        """Compute menu item rects for layout and input."""
+        menu_items = self._menus.get(self.state, [])
+        if not menu_items:
+            return [], []
+        if self.state == MenuState.CREDITS:
+            rect = pygame.Rect(0, 0, 260, 42)
+            rect.center = (self.width // 2, self.height - 90)
+            return menu_items, [rect]
+        spacing = 54
+        start_y = self.height // 2 - (len(menu_items) * spacing) // 2
+        panel_width = min(520, int(self.width * 0.6))
+        item_height = 42
+        rects: List[pygame.Rect] = []
+        for i, _ in enumerate(menu_items):
+            rect = pygame.Rect(0, 0, panel_width, item_height)
+            rect.center = (self.width // 2, start_y + i * spacing)
+            rects.append(rect)
+        return menu_items, rects
+
+    def _update_hover(self, pos: Tuple[int, int]) -> bool:
+        """Update selection based on mouse position."""
+        menu_items, rects = self._menu_layout()
+        if not rects:
+            return False
+        for idx, rect in enumerate(rects):
+            if rect.collidepoint(pos):
+                if menu_items[idx].enabled:
+                    if self.selected_index != idx:
+                        self.selected_index = idx
+                    return True
+        return False
     
     # Action callbacks
     def _new_game(self) -> None:
         if self.on_start_game:
-            self.on_start_game("new_game")
+            self.on_start_game("new_campaign")
     
     def _load_save(self) -> None:
         if self.on_start_game:
-            self.on_start_game("load_save")
+            self.on_start_game("continue_campaign")
+
+    def _quickplay(self) -> None:
+        if self.on_start_game:
+            self.on_start_game("quickplay")
     
     def _audio_settings(self) -> None:
         pass  # TODO: Audio settings menu
