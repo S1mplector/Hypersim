@@ -429,6 +429,14 @@ class DemoMenu:
         # Animations
         self._transition_anim = Animation(1, 1, 0)
         self._info_anim = Animation(0, 0, 0)
+
+        # Object list scrolling
+        self._list_scroll = 0.0
+        self._list_scroll_target = 0.0
+        self._list_hover_index: Optional[int] = None
+        self._list_item_height = 60
+        self._list_item_gap = 6
+        self._list_rect = pygame.Rect(10, 170, 300, self.height - 190)
         
         # UI Components
         self._init_ui()
@@ -497,6 +505,14 @@ class DemoMenu:
         # Animations
         self._transition_anim = Animation(1, 1, 0)
         self._info_anim = Animation(0, 0, 0)
+
+        # Object list scrolling
+        self._list_scroll = 0.0
+        self._list_scroll_target = 0.0
+        self._list_hover_index: Optional[int] = None
+        self._list_item_height = 60
+        self._list_item_gap = 6
+        self._list_rect = pygame.Rect(10, 170, 300, self.height - 190)
         
         # UI Components
         self._init_ui()
@@ -549,6 +565,8 @@ class DemoMenu:
     
     def _init_ui(self) -> None:
         """Initialize UI components."""
+        controls_top = 110
+        slider_gap = 60
         # Search box
         self.search_box = SearchBox(
             pygame.Rect(20, 70, 280, 36),
@@ -565,7 +583,7 @@ class DemoMenu:
         
         # Control toggles
         self.spin_toggle = Toggle(
-            (self.width - 280, 80),
+            (self.width - 280, controls_top),
             label="Auto-spin",
             value=True,
             on_change=lambda v: setattr(self, 'auto_spin', v),
@@ -573,21 +591,21 @@ class DemoMenu:
         
         # Settings sliders
         self.speed_slider = Slider(
-            pygame.Rect(self.width - 280, 140, 200, 24),
+            pygame.Rect(self.width - 280, controls_top + slider_gap, 200, 24),
             min_value=0.0, max_value=3.0, value=1.0,
             label="Spin Speed",
             on_change=lambda v: setattr(self, 'spin_speed', v),
         )
         
         self.scale_slider = Slider(
-            pygame.Rect(self.width - 280, 200, 200, 24),
+            pygame.Rect(self.width - 280, controls_top + slider_gap * 2, 200, 24),
             min_value=50.0, max_value=300.0, value=150.0,
             label="Projection Scale",
             on_change=lambda v: setattr(self, 'projection_scale', v),
         )
         
         self.w_slider = Slider(
-            pygame.Rect(self.width - 280, 260, 200, 24),
+            pygame.Rect(self.width - 280, controls_top + slider_gap * 3, 200, 24),
             min_value=0.0, max_value=1.0, value=0.3,
             label="W Perspective",
             on_change=lambda v: setattr(self, 'w_factor', v),
@@ -595,21 +613,21 @@ class DemoMenu:
         
         # Feature toggles
         self.gradient_toggle = Toggle(
-            (self.width - 280, 320),
+            (self.width - 280, controls_top + slider_gap * 4),
             label="Color Gradient",
             value=False,
             on_change=lambda v: setattr(self, 'use_gradient', v),
         )
         
         self.particles_toggle = Toggle(
-            (self.width - 280, 355),
+            (self.width - 280, controls_top + slider_gap * 4 + 35),
             label="Particles",
             value=False,
             on_change=self._toggle_particles,
         )
         
         self.blur_toggle = Toggle(
-            (self.width - 280, 390),
+            (self.width - 280, controls_top + slider_gap * 4 + 70),
             label="Motion Blur",
             value=False,
             on_change=self._toggle_motion_blur,
@@ -659,6 +677,9 @@ class DemoMenu:
         
         if self.filtered_objects:
             self._load_object(0)
+        else:
+            self._list_scroll = 0.0
+            self._list_scroll_target = 0.0
     
     def _filter_by_category(self, category: str) -> List[DemoObject]:
         """Filter objects by category."""
@@ -687,6 +708,9 @@ class DemoMenu:
         self.search_box.text = ""
         if self.filtered_objects:
             self._load_object(0)
+        else:
+            self._list_scroll = 0.0
+            self._list_scroll_target = 0.0
     
     def _load_object(self, index: int) -> None:
         """Load a demo object."""
@@ -704,6 +728,7 @@ class DemoMenu:
                 self.current_object.rotate(xy=0.35, xw=0.28, yw=0.22, zw=0.18)
             
             self._transition_anim.reset(0, 1, 0.3)
+            self._scroll_to_selection()
         except Exception as e:
             self.current_object = None
             self._add_toast(f"Failed to load: {e}", Colors.ERROR)
@@ -808,6 +833,37 @@ class DemoMenu:
         center_y = self.height // 2
         
         return int(proj_x + center_x), int(proj_y + center_y), depth
+
+    def _list_metrics(self) -> Tuple[pygame.Rect, int, int, int]:
+        """Get list layout metrics."""
+        list_rect = self._list_rect
+        item_height = self._list_item_height
+        item_gap = self._list_item_gap
+        item_stride = item_height + item_gap
+        content_height = len(self.filtered_objects) * item_stride
+        return list_rect, item_stride, content_height, item_height
+
+    def _clamp_list_scroll(self, value: float) -> float:
+        """Clamp list scroll to available content."""
+        list_rect, _, content_height, _ = self._list_metrics()
+        max_scroll = max(0, content_height - list_rect.height)
+        return max(0.0, min(value, float(max_scroll)))
+
+    def _scroll_to_selection(self) -> None:
+        """Ensure selected item is visible in the list."""
+        if not self.filtered_objects:
+            self._list_scroll_target = 0.0
+            return
+        list_rect, item_stride, _, item_height = self._list_metrics()
+        item_top = self.selected_index * item_stride
+        item_bottom = item_top + item_height
+        view_top = self._list_scroll_target
+        view_bottom = self._list_scroll_target + list_rect.height
+        if item_top < view_top:
+            self._list_scroll_target = float(item_top)
+        elif item_bottom > view_bottom:
+            self._list_scroll_target = float(item_bottom - list_rect.height)
+        self._list_scroll_target = self._clamp_list_scroll(self._list_scroll_target)
     
     def _render_object(self) -> None:
         """Render the current 4D object."""
@@ -931,40 +987,65 @@ class DemoMenu:
         self.search_box.draw(self.screen)
         self.category_tabs.draw(self.screen)
         
-        # Object list
-        list_y = 170
-        visible_height = self.height - 190
+        # Results count
+        count_text = f"{len(self.filtered_objects)} results"
+        count_surf = self.font_small.render(count_text, True, Colors.TEXT_MUTED)
+        self.screen.blit(count_surf, (20, 156))
         
+        # Object list
+        list_rect, item_stride, content_height, item_height = self._list_metrics()
+        mouse_pos = pygame.mouse.get_pos()
+        self._list_hover_index = None
+
+        # Scrollbar
+        max_scroll = max(0, content_height - list_rect.height)
+        if max_scroll > 0:
+            track_rect = pygame.Rect(list_rect.right - 8, list_rect.y, 4, list_rect.height)
+            pygame.draw.rect(self.screen, Colors.BORDER, track_rect, border_radius=3)
+            knob_height = max(30, int(list_rect.height * list_rect.height / content_height))
+            knob_y = int(list_rect.y + (self._list_scroll / max_scroll) * (list_rect.height - knob_height))
+            knob_rect = pygame.Rect(track_rect.x, knob_y, 4, knob_height)
+            pygame.draw.rect(self.screen, Colors.ACCENT_BLUE, knob_rect, border_radius=3)
+
+        if not self.filtered_objects:
+            empty = self.font_small.render("No matches. Try a different search.", True, Colors.TEXT_MUTED)
+            self.screen.blit(empty, (20, list_rect.y + 20))
+            return
+
         for i, obj in enumerate(self.filtered_objects):
-            if list_y > self.height - 20:
-                break
-            
-            item_rect = pygame.Rect(10, list_y, 300, 60)
-            
-            # Highlight selected
+            item_y = list_rect.y + i * item_stride - int(self._list_scroll)
+            item_rect = pygame.Rect(list_rect.x, item_y, list_rect.width - 10, item_height)
+
+            if item_rect.bottom < list_rect.y or item_rect.top > list_rect.bottom:
+                continue
+
+            if item_rect.collidepoint(mouse_pos):
+                self._list_hover_index = i
+
+            # Highlight selected/hovered
             if i == self.selected_index:
                 pygame.draw.rect(self.screen, Colors.BG_ACTIVE, item_rect, border_radius=6)
-                pygame.draw.rect(self.screen, obj.color, 
+                pygame.draw.rect(self.screen, obj.color,
                                pygame.Rect(item_rect.x, item_rect.y, 3, item_rect.height),
                                border_radius=2)
-            
+            elif i == self._list_hover_index:
+                pygame.draw.rect(self.screen, Colors.BG_HOVER, item_rect, border_radius=6)
+
             # Name
             name_color = Colors.TEXT_PRIMARY if i == self.selected_index else Colors.TEXT_SECONDARY
             name_surf = self.font_body.render(obj.name, True, name_color)
             self.screen.blit(name_surf, (item_rect.x + 12, item_rect.y + 8))
-            
+
             # Description
-            desc_surf = self.font_small.render(obj.description[:40] + "..." if len(obj.description) > 40 else obj.description, 
-                                               True, Colors.TEXT_MUTED)
+            desc = obj.description[:40] + "..." if len(obj.description) > 40 else obj.description
+            desc_surf = self.font_small.render(desc, True, Colors.TEXT_MUTED)
             self.screen.blit(desc_surf, (item_rect.x + 12, item_rect.y + 28))
-            
+
             # Stats
             if obj.vertices > 0:
                 stats = f"V:{obj.vertices} E:{obj.edges}"
                 stats_surf = self.font_small.render(stats, True, Colors.TEXT_MUTED)
                 self.screen.blit(stats_surf, (item_rect.x + 12, item_rect.y + 44))
-            
-            list_y += 65
     
     def _draw_info_panel(self) -> None:
         """Draw the info panel on the right."""
@@ -987,6 +1068,18 @@ class DemoMenu:
         cat_surf = self.font_small.render(demo.category, True, Colors.TEXT_MUTED)
         self.screen.blit(cat_surf, (panel_x + 15, 48))
         
+        # Tags
+        if demo.tags:
+            tag_x = panel_x + 15
+            tag_y = 72
+            for tag in demo.tags[:3]:
+                tag_text = self.font_small.render(tag, True, Colors.TEXT_SECONDARY)
+                tag_rect = tag_text.get_rect()
+                pill_rect = pygame.Rect(tag_x, tag_y, tag_rect.width + 12, 20)
+                pygame.draw.rect(self.screen, Colors.BG_ACTIVE, pill_rect, border_radius=10)
+                self.screen.blit(tag_text, (tag_x + 6, tag_y + 2))
+                tag_x += pill_rect.width + 6
+        
         # Toggles and sliders
         self.spin_toggle.draw(self.screen)
         self.speed_slider.draw(self.screen)
@@ -999,7 +1092,7 @@ class DemoMenu:
         self.blur_toggle.draw(self.screen)
         
         # Stats panel
-        stats_y = 440
+        stats_y = 470
         pygame.draw.line(self.screen, Colors.BORDER, (panel_x + 15, stats_y), (self.width - 15, stats_y), 1)
         
         stats_title = self.font_body.render("Geometry", True, Colors.TEXT_PRIMARY)
@@ -1244,8 +1337,9 @@ class DemoMenu:
             
             # Mouse click on object list
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if 10 <= event.pos[0] <= 310 and 170 <= event.pos[1] < self.height:
-                    clicked_idx = (event.pos[1] - 170) // 65
+                list_rect, item_stride, _, _ = self._list_metrics()
+                if list_rect.collidepoint(event.pos):
+                    clicked_idx = int((event.pos[1] - list_rect.y + self._list_scroll) // item_stride)
                     if 0 <= clicked_idx < len(self.filtered_objects):
                         self._load_object(clicked_idx)
             
@@ -1253,10 +1347,17 @@ class DemoMenu:
             if event.type == pygame.MOUSEWHEEL:
                 mx, my = pygame.mouse.get_pos()
                 if mx < 320:  # In object list
-                    if event.y > 0:
-                        self._load_object(self.selected_index - 1)
+                    # Scroll list, keep selection stable
+                    list_rect, item_stride, _, _ = self._list_metrics()
+                    if list_rect.collidepoint((mx, my)):
+                        self._list_scroll_target = self._clamp_list_scroll(
+                            self._list_scroll_target - event.y * item_stride
+                        )
                     else:
-                        self._load_object(self.selected_index + 1)
+                        if event.y > 0:
+                            self._load_object(self.selected_index - 1)
+                        else:
+                            self._load_object(self.selected_index + 1)
     
     def update(self, dt: float) -> None:
         """Update animations and object rotation."""
@@ -1279,6 +1380,9 @@ class DemoMenu:
         
         # Update animations
         self._transition_anim.update(dt)
+        # Smooth list scroll
+        self._list_scroll_target = self._clamp_list_scroll(self._list_scroll_target)
+        self._list_scroll += (self._list_scroll_target - self._list_scroll) * min(1.0, dt * 12.0)
         
         # Update toasts
         for toast in self.toasts:
