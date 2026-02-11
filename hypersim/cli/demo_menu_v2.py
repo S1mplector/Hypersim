@@ -22,7 +22,7 @@ from hypersim.objects import (
     HopfLink4D, OneHundredTwentyCell, GrandAntiprism, RuncinatedTesseract,
     TruncatedTesseract, CantellatedTesseract, BitruncatedTesseract,
     Snub24Cell, OmnitruncatedTesseract, Tesseractihexadecachoron,
-    KleinBottle4D, Pentachoron,
+    Disphenoidal288Cell, KleinBottle4D, Pentachoron,
 )
 
 from .ui_components import (
@@ -213,8 +213,39 @@ DEMO_OBJECTS: List[DemoObject] = [
         math_info="Non-Wythoffian. Two rings of 10 antiprisms each.",
         tags=["uniform", "antiprism", "unique"],
     ),
+    DemoObject(
+        name="Disphenoidal 288-cell",
+        description="Dual of the rectified 24-cell",
+        factory=lambda: Disphenoidal288Cell(size=1.0),
+        category="Special Polytopes",
+        color=(180, 210, 255),
+        line_width=1,
+        vertices=48, edges=288, faces=576, cells=288,
+        math_info="Isochoric dual of the rectified 24-cell. Tetragonal disphenoid cells.",
+        tags=["dual", "isochoric", "special"],
+    ),
     
     # Prisms
+    DemoObject(
+        name="Square Duoprism (4×4)",
+        description="Product of two squares",
+        factory=lambda: Duoprism(m=4, n=4, size=1.1),
+        category="Prisms & Products",
+        color=(230, 210, 140),
+        vertices=16, edges=32, faces=24, cells=8,
+        math_info="P(4) × P(4). Symmetric duoprism with 8 prism cells.",
+        tags=["prism", "product", "duoprism"],
+    ),
+    DemoObject(
+        name="Triangular Duoprism (3×3)",
+        description="Product of two triangles",
+        factory=lambda: Duoprism(m=3, n=3, size=1.1),
+        category="Prisms & Products",
+        color=(240, 200, 120),
+        vertices=9, edges=18, faces=15, cells=6,
+        math_info="P(3) × P(3). Fundamental duoprism family member.",
+        tags=["prism", "product", "duoprism"],
+    ),
     DemoObject(
         name="Duoprism (5×6)",
         description="Pentagon × hexagon product",
@@ -447,6 +478,8 @@ class DemoMenu:
         self.font_body = pygame.font.SysFont("Arial", 16)
         self.font_small = pygame.font.SysFont("Arial", 14)
         self.font_mono = pygame.font.SysFont("Consolas", 14)
+        self.font_math = pygame.font.SysFont("Arial", 14)
+        self.font_math_script = pygame.font.SysFont("Arial", 11)
         
         # Toasts
         self.toasts: List[Toast] = []
@@ -523,6 +556,8 @@ class DemoMenu:
         self.font_body = pygame.font.SysFont("Arial", 16)
         self.font_small = pygame.font.SysFont("Arial", 14)
         self.font_mono = pygame.font.SysFont("Consolas", 14)
+        self.font_math = pygame.font.SysFont("Arial", 14)
+        self.font_math_script = pygame.font.SysFont("Arial", 11)
         
         # Toasts
         self.toasts: List[Toast] = []
@@ -790,6 +825,265 @@ class DemoMenu:
             self.record_btn.text = "Stop"
             self.record_btn.color = Colors.ERROR
             self._add_toast("Recording started...", Colors.ACCENT_ORANGE)
+
+    def _preprocess_math_text(self, text: str) -> str:
+        """Preprocess unicode subscripts/superscripts into LaTeX-like markup."""
+        sup_map = {
+            "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4",
+            "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
+            "⁺": "+", "⁻": "-", "⁼": "=", "⁽": "(", "⁾": ")",
+        }
+        sub_map = {
+            "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4",
+            "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9",
+            "₊": "+", "₋": "-", "₌": "=", "₍": "(", "₎": ")",
+        }
+        out = []
+        i = 0
+        while i < len(text):
+            ch = text[i]
+            if ch in sup_map:
+                digits = []
+                while i < len(text) and text[i] in sup_map:
+                    digits.append(sup_map[text[i]])
+                    i += 1
+                out.append("^{" + "".join(digits) + "}")
+                continue
+            if ch in sub_map:
+                digits = []
+                while i < len(text) and text[i] in sub_map:
+                    digits.append(sub_map[text[i]])
+                    i += 1
+                out.append("_{" + "".join(digits) + "}")
+                continue
+            if ch == "$":
+                i += 1
+                continue
+            out.append(ch)
+            i += 1
+        return "".join(out)
+
+    def _parse_math_group(self, text: str, start: int) -> Tuple[str, int]:
+        """Parse a {...} group starting at index."""
+        if start >= len(text):
+            return "", start
+        if text[start] != "{":
+            return text[start], start + 1
+        depth = 0
+        i = start
+        content = []
+        while i < len(text):
+            ch = text[i]
+            if ch == "{":
+                depth += 1
+                if depth > 1:
+                    content.append(ch)
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return "".join(content), i + 1
+                content.append(ch)
+            else:
+                content.append(ch)
+            i += 1
+        return "".join(content), i
+
+    def _parse_math_command(self, text: str, start: int) -> Tuple[str, int]:
+        """Parse a \\command starting at index."""
+        if start >= len(text):
+            return "", start
+        if not text[start].isalpha():
+            return text[start], start + 1
+        i = start
+        while i < len(text) and text[i].isalpha():
+            i += 1
+        return text[start:i], i
+
+    def _parse_math_runs(self, text: str) -> Tuple[List[Tuple[str, pygame.font.Font, float, float]], float, float, float, float]:
+        """Parse math-like markup into drawable runs."""
+        base_font = self.font_math
+        script_font = self.font_math_script
+        base_ascent = base_font.get_ascent()
+        base_descent = abs(base_font.get_descent())
+        runs: List[Tuple[str, pygame.font.Font, float, float]] = []
+        x = 0.0
+        max_up = float(base_ascent)
+        max_down = float(base_descent)
+        last_base_x = 0.0
+        buffer = []
+
+        symbols = {
+            "times": "×",
+            "cdot": "·",
+            "pm": "±",
+            "le": "≤",
+            "ge": "≥",
+            "neq": "≠",
+            "approx": "≈",
+            "infty": "∞",
+            "to": "→",
+            "rightarrow": "→",
+            "leftarrow": "←",
+            "leftrightarrow": "↔",
+            "alpha": "α",
+            "beta": "β",
+            "gamma": "γ",
+            "delta": "δ",
+            "epsilon": "ε",
+            "zeta": "ζ",
+            "eta": "η",
+            "theta": "θ",
+            "lambda": "λ",
+            "mu": "μ",
+            "nu": "ν",
+            "xi": "ξ",
+            "pi": "π",
+            "rho": "ρ",
+            "sigma": "σ",
+            "tau": "τ",
+            "phi": "φ",
+            "chi": "χ",
+            "psi": "ψ",
+            "omega": "ω",
+            "Delta": "Δ",
+            "Lambda": "Λ",
+            "Sigma": "Σ",
+            "Phi": "Φ",
+            "Psi": "Ψ",
+            "Omega": "Ω",
+            "{": "{",
+            "}": "}",
+        }
+        mathbb_map = {
+            "R": "ℝ",
+            "N": "ℕ",
+            "Z": "ℤ",
+            "Q": "ℚ",
+            "C": "ℂ",
+            "S": "𝕊",
+        }
+
+        def flush_buffer() -> None:
+            nonlocal x, last_base_x, buffer
+            if not buffer:
+                return
+            text_run = "".join(buffer)
+            buffer = []
+            width = base_font.size(text_run)[0]
+            runs.append((text_run, base_font, x, 0.0))
+            x += width
+            last_base_x = x
+
+        i = 0
+        while i < len(text):
+            ch = text[i]
+            if ch == "\\":
+                flush_buffer()
+                cmd, i = self._parse_math_command(text, i + 1)
+                if cmd == "mathbb":
+                    group, i = self._parse_math_group(text, i)
+                    symbol = mathbb_map.get(group, group)
+                    width = base_font.size(symbol)[0]
+                    runs.append((symbol, base_font, x, 0.0))
+                    x += width
+                    last_base_x = x
+                elif cmd == "text":
+                    group, i = self._parse_math_group(text, i)
+                    if group:
+                        width = base_font.size(group)[0]
+                        runs.append((group, base_font, x, 0.0))
+                        x += width
+                        last_base_x = x
+                else:
+                    symbol = symbols.get(cmd, "\\" + cmd)
+                    width = base_font.size(symbol)[0]
+                    runs.append((symbol, base_font, x, 0.0))
+                    x += width
+                    last_base_x = x
+                continue
+            if ch in "^_":
+                flush_buffer()
+                script_type = ch
+                group, i = self._parse_math_group(text, i + 1)
+                if not group:
+                    continue
+                script_width = script_font.size(group)[0]
+                if script_type == "^":
+                    dy = -base_ascent * 0.65
+                    max_up = max(max_up, -dy + script_font.get_ascent())
+                else:
+                    dy = base_descent * 0.9
+                    max_down = max(max_down, dy + abs(script_font.get_descent()))
+                runs.append((group, script_font, last_base_x, dy))
+                x = max(x, last_base_x + script_width)
+                continue
+            if ch == "{":
+                buffer.append("{")
+                i += 1
+                continue
+            if ch == "}":
+                buffer.append("}")
+                i += 1
+                continue
+            buffer.append(ch)
+            i += 1
+
+        flush_buffer()
+        height = max_up + max_down
+        return runs, x, height, max_up, max_down
+
+    def _draw_math_paragraph(
+        self,
+        text: str,
+        x: int,
+        y: int,
+        max_width: int,
+        color: Tuple[int, int, int],
+    ) -> int:
+        """Draw math text with simple LaTeX-style rendering and wrapping."""
+        processed = self._preprocess_math_text(text)
+        words = processed.split(" ")
+        space_width = self.font_math.size(" ")[0]
+        line_words: List[Tuple[List[Tuple[str, pygame.font.Font, float, float]], float, float, float, float]] = []
+        line_width = 0.0
+        line_max_up = 0.0
+        line_max_down = 0.0
+        line_y = y
+
+        for word in words:
+            if word == "":
+                continue
+            runs, width, _, max_up, max_down = self._parse_math_runs(word)
+            if line_words and line_width + width > max_width:
+                baseline = line_y + line_max_up
+                cursor_x = x
+                for word_runs, word_width, _, _, _ in line_words:
+                    for text_run, font, dx, dy in word_runs:
+                        surf = font.render(text_run, True, color)
+                        self.screen.blit(surf, (cursor_x + dx, baseline + dy))
+                    cursor_x += word_width + space_width
+                line_y += line_max_up + line_max_down + 6
+                line_words = []
+                line_width = 0.0
+                line_max_up = 0.0
+                line_max_down = 0.0
+
+            line_words.append((runs, width, 0.0, max_up, max_down))
+            line_width += width + space_width
+            line_max_up = max(line_max_up, max_up)
+            line_max_down = max(line_max_down, max_down)
+
+        if line_words:
+            baseline = line_y + line_max_up
+            cursor_x = x
+            for word_runs, word_width, _, _, _ in line_words:
+                for text_run, font, dx, dy in word_runs:
+                    surf = font.render(text_run, True, color)
+                    self.screen.blit(surf, (cursor_x + dx, baseline + dy))
+                cursor_x += word_width + space_width
+            line_y += line_max_up + line_max_down
+
+        return int(line_y + 4)
     
     def _start_morph(self) -> None:
         """Start morphing to next object."""
@@ -1123,22 +1417,13 @@ class DemoMenu:
             info_title = self.font_body.render("Math", True, Colors.TEXT_PRIMARY)
             self.screen.blit(info_title, (panel_x + 15, stats_y))
             stats_y += 25
-            
-            # Word wrap math info
-            words = demo.math_info.split()
-            line = ""
-            for word in words:
-                test_line = line + word + " "
-                if self.font_small.size(test_line)[0] < 270:
-                    line = test_line
-                else:
-                    info_surf = self.font_small.render(line, True, Colors.TEXT_SECONDARY)
-                    self.screen.blit(info_surf, (panel_x + 15, stats_y))
-                    stats_y += 18
-                    line = word + " "
-            if line:
-                info_surf = self.font_small.render(line, True, Colors.TEXT_SECONDARY)
-                self.screen.blit(info_surf, (panel_x + 15, stats_y))
+            stats_y = self._draw_math_paragraph(
+                demo.math_info,
+                panel_x + 15,
+                stats_y,
+                max_width=270,
+                color=Colors.TEXT_SECONDARY,
+            )
         
         # Buttons
         self.screenshot_btn.draw(self.screen)

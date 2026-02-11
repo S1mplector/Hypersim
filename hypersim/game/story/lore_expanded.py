@@ -429,7 +429,79 @@ they face a choice: believe they have failed, or accept that the
         """,
         related_entries=["the_first_extension", "forward_sentinel_history", "void_philosophy"],
     ),
-    
+
+    "void_philosophy": LoreEntry(
+        id="void_philosophy",
+        title="The Void Contemplatives",
+        category=LoreCategory.CULTURE,
+        dimension="1d",
+        text="""
+THE VOID CONTEMPLATIVES
+
+The Void Contemplatives are the oldest dissenting tradition in Monodia.
+Where the Forward Doctrine sees meaning only in progress, the
+Contemplatives insist that memory is also direction.
+
+THE BACKWARD PILGRIMAGE
+To these monks, moving backward is not regression but witness. They
+walk toward old collisions, listening to residual vibrations as if the
+Line itself remembers every impact. Their monasteries are built around
+"echo knots" where ancient pulse patterns still recur.
+
+THE PARADOX OF ORIGIN
+Contemplatives teach that no being can know where it is going without
+understanding where direction began. They meditate on the First
+Extension, arguing that FORWARD and BACKWARD were born together and are
+therefore equally sacred.
+
+RITUAL OF STILLNESS
+A central practice is to stop moving completely for long spans. In a
+culture where motion is identity, stillness is radical. Practitioners
+describe hearing "the hum beneath direction," which they interpret as a
+faint memory of the pre-dimensional Void.
+
+RELATION TO THE SENTINELS
+The Forward Sentinels accuse the Contemplatives of weakening resolve.
+The Contemplatives answer that fear of backward motion is simply fear of
+self-knowledge. Their debates have shaped 1D politics for ages.
+        """,
+        related_entries=["line_philosophy", "the_void_before", "forward_sentinel_history"],
+    ),
+
+    "point_worship": LoreEntry(
+        id="point_worship",
+        title="Cults of the First Point",
+        category=LoreCategory.CULTURE,
+        dimension="all",
+        text="""
+CULTS OF THE FIRST POINT
+
+Nearly every dimension contains sects devoted to the First Point, but
+their beliefs differ sharply depending on local perception.
+
+MONODIA ORTHODOXY
+In 1D, worship centers on obedience. Priests teach that every choice is
+already contained within the Point and that duty is to align with its
+intended direction.
+
+FLATLAND MYSTERIES
+In 2D, circles claim the Point is the hidden center of all curvature.
+Initiates trace endless spirals to simulate approach toward a center
+they can never actually reach.
+
+VOLUMETRIC SCHISMS
+In 3D, competing schools debate whether the Point is a person, a law of
+physics, or a metaphor for consciousness itself. The debate has produced
+both universities and crusades.
+
+HYPERSPACE INTERPRETATION
+In 4D, many reject simple devotion and treat the Point as an unresolved
+equation: a source that is simultaneously observer and observed. Their
+rituals resemble experiments as much as prayer.
+        """,
+        related_entries=["the_first_point", "the_first_point_bio", "void_philosophy"],
+    ),
+
     "flatland_society": LoreEntry(
         id="flatland_society",
         title="The Hierarchy of Flatland",
@@ -595,6 +667,379 @@ it. Others say 4D is the limit of coherent existence. The Transcended
 refuse to answer clearly.
         """,
         related_entries=["the_threshold_opening", "tesseract_sage_bio", "beyond_threshold_theory"],
+    ),
+}
+
+# =============================================================================
+# HISTORICAL RECORDS
+# =============================================================================
+
+HISTORY_LORE = {
+    "flatland_origin": LoreEntry(
+        id="flatland_origin",
+        title="Founding of Flatland",
+        category=LoreCategory.HISTORY,
+        dimension="2d",
+        text="""
+FOUNDING OF FLATLAND
+
+After the First Unfolding, early 2D beings did not form nations
+immediately. The newborn plane was unstable, with regions of warped
+angles and collapsing boundaries. Survival came first.
+
+AGE OF TILING
+Squares and triangles discovered that regular tessellations reduced
+local instability. Settlements were built as living patterns: each
+citizen's body literally reinforced the geometry of the town.
+
+THE LAW OF REGULARITY
+As order returned, priests and administrators claimed regular geometry
+was not just useful but morally superior. This practical rule hardened
+into ideology. Over centuries it became the social hierarchy still
+dominant in Flatland.
+
+FIRST ASSEMBLY
+The earliest civic council included triangles, squares, and a single
+circle observer. The circle's role was symbolic at first, but expanded
+as theological authority increased.
+        """,
+        related_entries=["the_first_unfolding", "flatland_society", "irregular_history"],
+    ),
+
+    "irregular_history": LoreEntry(
+        id="irregular_history",
+        title="Chronicle of the Irregulars",
+        category=LoreCategory.HISTORY,
+        dimension="2d",
+        text="""
+CHRONICLE OF THE IRREGULARS
+
+Irregular shapes have existed in Flatland since its earliest days.
+Before hierarchy solidified, they served as scouts and cartographers
+because their asymmetric angles let them maneuver through unstable zones.
+
+THE PURGES
+When the Law of Regularity became doctrine, irregulars were reframed as
+errors. Registration campaigns became internment, and internment became
+purge. Many fled to the Fractal Frontier where official geometry was
+harder to enforce.
+
+THE FRACTAL LEAGUES
+Exiled communities developed new mathematics centered on growth,
+adaptation, and non-repeating forms. Their texts preserved forbidden
+ideas about thickness and folded space.
+
+LEGACY
+Most accounts of the Great Folding credit irregular scholars with
+keeping dimensional imagination alive during the centuries of repression.
+        """,
+        related_entries=["flatland_society", "the_great_folding", "membrane_warper_bio"],
+    ),
+
+    "forward_sentinel_history": LoreEntry(
+        id="forward_sentinel_history",
+        title="Rise of the Forward Sentinels",
+        category=LoreCategory.HISTORY,
+        dimension="1d",
+        text="""
+RISE OF THE FORWARD SENTINELS
+
+The Forward Sentinels began as convoy guards protecting trade pulses
+between clustered settlements on the Line. Their practical code was
+simple: keep movement continuous and prevent pileups.
+
+DOCTRINAL HARDENING
+After several catastrophic backward stampedes, Sentinel captains linked
+order with forward-only motion. Tactical protocol gradually became moral
+law, then sacred law.
+
+THE WARDEN ERA
+For a long period, Sentinel commanders acted as both military and
+judicial authority. Dissenting philosophers were marked as vectors of
+entropy, and backward travel permits were heavily restricted.
+
+CURRENT STATE
+Modern Sentinels are divided between traditionalists and reformers.
+Younger officers cooperate quietly with Midpoint scholars, while older
+cells still treat contemplative orders as existential threats.
+        """,
+        related_entries=["line_philosophy", "void_philosophy", "segment_guardian_bio"],
+    ),
+
+    "endpoint_history": LoreEntry(
+        id="endpoint_history",
+        title="History of the Endpoint",
+        category=LoreCategory.HISTORY,
+        dimension="1d",
+        text="""
+HISTORY OF THE ENDPOINT
+
+The Endpoint was first documented as a region where collisions thinned
+and pulse echoes arrived out of sequence. Early walkers interpreted it
+as a cosmic malfunction.
+
+THE FIRST WATCHERS
+Communities formed near the boundary to record anomalies. Their logs
+describe sparks vanishing and reappearing with altered cadence, as if
+they returned from somewhere wider.
+
+THE GUARDIAN COMPACT
+After multiple failed crossings, line councils and contemplative orders
+agreed to appoint a permanent custodian. This arrangement became the
+role now known as the Segment Guardian.
+
+MODERN MEANING
+To most 1D citizens, the Endpoint remains mythic. To initiates, it is a
+test of identity: proof that growth and exile are often the same event.
+        """,
+        related_entries=["monodia_terminus", "segment_guardian_bio", "threshold_guardian_bio"],
+    ),
+
+    "geometric_citadel_history": LoreEntry(
+        id="geometric_citadel_history",
+        title="Annals of the Geometric Citadel",
+        category=LoreCategory.HISTORY,
+        dimension="3d",
+        text="""
+ANNALS OF THE GEOMETRIC CITADEL
+
+The Geometric Citadel began as a defensive alliance of polyhedral city
+states responding to shadow incursions from unstable border regions.
+Its founders used shared axioms instead of shared blood as the basis of
+citizenship.
+
+THE PENTAGON CHARTERS
+A series of civic reforms established representation by face-count bands
+rather than species lineages. This reduced open conflict but preserved
+hierarchy through mathematical prestige.
+
+THE TRANSLUCENT CENTURY
+Advances in optics and projection science transformed the Citadel into a
+research capital. This period produced the first verified models of 4D
+shadows and formalized protocols for hyperdimensional diplomacy.
+
+PRESENT DAY
+The Citadel remains the primary 3D gatekeeper for Threshold candidates,
+balancing fear of 4D exposure with the belief that stagnation is worse.
+        """,
+        related_entries=["platonic_wisdom", "the_great_folding", "tesseract_sage_bio"],
+    ),
+}
+
+# =============================================================================
+# SCIENTIFIC THEORIES
+# =============================================================================
+
+SCIENCE_LORE = {
+    "4d_polytopes": LoreEntry(
+        id="4d_polytopes",
+        title="Treatise on the Six Regular 4-Polytopes",
+        category=LoreCategory.SCIENCE,
+        dimension="4d",
+        text="""
+TREATISE ON THE SIX REGULAR 4-POLYTOPES
+
+The six regular convex 4-polytopes are not merely shapes in hyperspace;
+they form the basis of 4D engineering, governance, and pedagogy.
+
+APPLIED GEOMETRY
+Each polytope family corresponds to practical strengths. Tesseract
+lattices excel at stable transit corridors. 24-cell structures optimize
+resonance distribution. 120-cell shells are used for archival vaults.
+
+DUALITY AS DESIGN
+4D architects rely heavily on dual relationships between polytopes.
+Rather than choosing a single form, many systems alternate dual pairs to
+balance flow, strength, and perception.
+
+THE INITIATE MODEL
+New arrivals are trained by moving through projected slices of each
+polytope in sequence. This curriculum reduces disorientation and teaches
+that form and cognition co-evolve in higher dimensions.
+        """,
+        related_entries=["platonic_wisdom", "4d_madness", "beyond_threshold_theory"],
+    ),
+
+    "beyond_threshold_theory": LoreEntry(
+        id="beyond_threshold_theory",
+        title="Beyond Threshold Theory",
+        category=LoreCategory.SCIENCE,
+        dimension="4d",
+        text="""
+BEYOND THRESHOLD THEORY
+
+Beyond Threshold Theory studies whether coherent existence can extend
+past 4D without collapsing identity into noise.
+
+THE FIVE-DIMENSIONAL HYPOTHESIS
+Proponents argue that 5D introduces a meta-axis across probability
+landscapes, allowing not just movement through space but movement
+between neighboring causal structures.
+
+THE COHERENCE OBJECTION
+Skeptics claim minds evolved for bounded dimensions cannot remain stable
+under 5D perception. They cite cases where experimental seers lost the
+ability to distinguish memory from possibility.
+
+CURRENT CONSENSUS
+No civilization has produced repeatable evidence of sustained 5D
+occupation. Most academies classify the theory as plausible but
+unverified, with strict ethical limits on live trials.
+        """,
+        related_entries=["hyperspace_existence", "convergence_prophecy", "threshold_guardian_bio"],
+    ),
+
+    "4d_madness": LoreEntry(
+        id="4d_madness",
+        title="Cognitive Fracture in 4D Ascension",
+        category=LoreCategory.SCIENCE,
+        dimension="4d",
+        text="""
+COGNITIVE FRACTURE IN 4D ASCENSION
+
+The condition called "4D madness" is now understood as dimensional
+integration failure rather than moral weakness.
+
+SYMPTOM CLUSTERS
+Patients report recursive self-vision, probabilistic hallucinations, and
+loss of boundary between internal thought and external structure. In
+severe cases, they become unable to commit to a single action path.
+
+RISK FACTORS
+Rapid ascension, unresolved identity conflict, and coercive initiation
+protocols dramatically increase fracture rates. Social isolation after
+crossing is also a major predictor.
+
+TREATMENT
+Modern clinics use staged projection therapy, guided anchor narratives,
+and cooperative memory mapping with trusted companions. Recovery is
+possible, but most survivors describe permanent changes in perception.
+        """,
+        related_entries=["the_threshold_opening", "beyond_threshold_theory", "tesseract_sage_bio"],
+    ),
+}
+
+# =============================================================================
+# SIGNIFICANT LOCATIONS
+# =============================================================================
+
+LOCATION_LORE = {
+    "curved_depths_archives": LoreEntry(
+        id="curved_depths_archives",
+        title="The Curved Depths Archives",
+        category=LoreCategory.LOCATION,
+        dimension="2d",
+        text="""
+THE CURVED DEPTHS ARCHIVES
+
+Beneath the ceremonial chambers of the Circle Priests lies a spiral
+archive where texts are inscribed as concentric rings instead of lines.
+To read a full sentence, one must traverse circumference and radius in
+precisely timed patterns.
+
+Many records are intentionally contradictory, forcing initiates to hold
+multiple interpretations at once. Reformists claim this was designed to
+train flexible thought. Traditionalists claim it protects sacred truth.
+        """,
+        related_entries=["circle_theology", "sphere_prophecy", "high_priest_circle_bio"],
+    ),
+
+    "crystalline_spires": LoreEntry(
+        id="crystalline_spires",
+        title="The Crystalline Spires",
+        category=LoreCategory.LOCATION,
+        dimension="3d",
+        text="""
+THE CRYSTALLINE SPIRES
+
+The Spires are a 3D research complex built from resonant crystal
+columns tuned to specific projection frequencies. They function as
+observatory, university, and diplomatic forum for dimensional affairs.
+
+Most accepted models of the W-axis were refined here, including the
+ethical framework now used to screen Threshold candidates.
+        """,
+        related_entries=["the_threshold_opening", "geometric_citadel_history", "4d_polytopes"],
+    ),
+
+    "the_threshold": LoreEntry(
+        id="the_threshold",
+        title="The Threshold",
+        category=LoreCategory.LOCATION,
+        dimension="4d",
+        text="""
+THE THRESHOLD
+
+The Threshold is not a gate in the architectural sense. It is a
+stabilized region where dimensional gradients are intentionally made
+crossable through geometry, ritual, and will.
+
+Pilgrims report hearing different voices at the boundary depending on
+their route history. Scholars interpret this as cognitive resonance.
+Mystics call it judgment.
+        """,
+        related_entries=["the_threshold_opening", "threshold_guardian_bio", "convergence_prophecy"],
+    ),
+}
+
+# =============================================================================
+# ARTIFACTS
+# =============================================================================
+
+ARTIFACT_LORE = {
+    "axis_compass": LoreEntry(
+        id="axis_compass",
+        title="The Axis Compass",
+        category=LoreCategory.ARTIFACT,
+        dimension="3d",
+        text="""
+THE AXIS COMPASS
+
+A rare navigation instrument forged in the Crystalline Spires. Unlike
+ordinary compasses, it resolves orientation across dimensional axes,
+including weak W-gradients near transition zones.
+
+Most versions are inert in untrained hands; they attune to a user's
+perception profile over time.
+        """,
+        related_entries=["crystalline_spires", "the_threshold_opening", "beyond_threshold_theory"],
+    ),
+
+    "tessera_shard": LoreEntry(
+        id="tessera_shard",
+        title="Shard of Tessera",
+        category=LoreCategory.ARTIFACT,
+        dimension="all",
+        text="""
+SHARD OF TESSERA
+
+Legends describe these fragments as chips from the primordial mosaic
+that gave the game its name. Each shard appears differently in each
+dimension: spark in 1D, glyph in 2D, crystal in 3D, and folded memory in
+4D.
+
+No two verified shards resonate identically. Some amplify empathy during
+ascension, while others intensify ambition.
+        """,
+        related_entries=["tessera_prologue", "the_first_point", "convergence_prophecy"],
+    ),
+
+    "memory_prism": LoreEntry(
+        id="memory_prism",
+        title="The Memory Prism",
+        category=LoreCategory.ARTIFACT,
+        dimension="4d",
+        text="""
+THE MEMORY PRISM
+
+A transparent polytope device used in recovery from dimensional
+integration fractures. It stores experiential slices as stable
+projections that can be revisited without full reliving.
+
+Healers warn that overreliance can trap users in curated past states,
+preventing natural identity synthesis after ascension.
+        """,
+        related_entries=["4d_madness", "tesseract_sage_bio", "axis_compass"],
     ),
 }
 
@@ -767,6 +1212,94 @@ never walking through."
         """,
         related_entries=["line_philosophy", "the_first_extension", "endpoint_history"],
     ),
+
+    "high_priest_circle_bio": LoreEntry(
+        id="high_priest_circle_bio",
+        title="Biography: High Priest Circle",
+        category=LoreCategory.BIOGRAPHY,
+        dimension="2d",
+        text="""
+HIGH PRIEST CIRCLE - Curator of Curvature
+
+The current High Priest Circle was born into minor clerical service and
+rose through the archive orders by mastering circular notation systems
+that most initiates considered unreadable.
+
+Publicly, the Priest defends strict Flatland hierarchy as necessary for
+social stability. Privately, recovered correspondence suggests cautious
+interest in dimensional reform, especially education for irregular youth.
+
+Their central conflict is political: protect institutional continuity, or
+reveal theological evidence that could destabilize the regime.
+        """,
+        related_entries=["circle_theology", "curved_depths_archives", "sphere_prophecy"],
+    ),
+
+    "membrane_warper_bio": LoreEntry(
+        id="membrane_warper_bio",
+        title="Biography: The Membrane Warper",
+        category=LoreCategory.BIOGRAPHY,
+        dimension="2d",
+        text="""
+THE MEMBRANE WARPER - Borderborn Anomaly
+
+The Membrane Warper emerged near a persistent fold between Flatland and
+early 3D territory. Their body phases unpredictably, appearing as a
+distorted polygon in 2D and a fractured polyhedron in 3D projection.
+
+Rather than choosing allegiance, the Warper became an intermediary at
+the dimensional boundary. They are feared by authorities in both realms
+because they cannot be fully categorized or controlled.
+
+Those who survive encounters describe the Warper as severe but fair:
+they test intent more than strength.
+        """,
+        related_entries=["sphere_prophecy", "irregular_history", "the_threshold_opening"],
+    ),
+
+    "tesseract_sage_bio": LoreEntry(
+        id="tesseract_sage_bio",
+        title="Biography: The Tesseract Sage",
+        category=LoreCategory.BIOGRAPHY,
+        dimension="4d",
+        text="""
+THE TESSERACT SAGE - Cartographer of W
+
+The Tesseract Sage is among the oldest known stable 4D mentors. They
+began as a 3D projection scholar in the Crystalline Spires and crossed
+the Threshold after decades of theoretical preparation.
+
+Their research unified ritual practice with clinical science, leading to
+the modern ascension protocols that reduced cognitive fracture rates.
+Many clinics still use training schemas attributed to the Sage.
+
+Despite prestige, the Sage refuses formal office and remains itinerant,
+teaching in brief visits before disappearing along ana trajectories.
+        """,
+        related_entries=["hyperspace_existence", "4d_madness", "beyond_threshold_theory"],
+    ),
+
+    "threshold_guardian_bio": LoreEntry(
+        id="threshold_guardian_bio",
+        title="Biography: The Threshold Guardian",
+        category=LoreCategory.BIOGRAPHY,
+        dimension="4d",
+        text="""
+THE THRESHOLD GUARDIAN - Warden of Crossing
+
+Unlike the Segment Guardian, the Threshold Guardian is not a single
+fixed form. Witnesses describe a shifting polytope assembly whose
+configuration adapts to each traveler's cognitive state.
+
+The Guardian's mandate is often misunderstood as exclusion. In practice,
+it enforces pacing. Some candidates are delayed, not denied, and sent to
+prepare through study, service, or healing.
+
+Legends claim the Guardian remembers every crossing ever attempted. When
+it speaks a pilgrim's true fear aloud, many turn back voluntarily.
+        """,
+        related_entries=["the_threshold", "convergence_prophecy", "beyond_threshold_theory"],
+    ),
 }
 
 
@@ -777,6 +1310,10 @@ never walking through."
 ALL_LORE: Dict[str, LoreEntry] = {}
 ALL_LORE.update(COSMOLOGY_LORE)
 ALL_LORE.update(CULTURE_LORE)
+ALL_LORE.update(HISTORY_LORE)
+ALL_LORE.update(SCIENCE_LORE)
+ALL_LORE.update(LOCATION_LORE)
+ALL_LORE.update(ARTIFACT_LORE)
 ALL_LORE.update(PROPHECY_LORE)
 ALL_LORE.update(BIOGRAPHY_LORE)
 
@@ -794,6 +1331,32 @@ def get_lore_by_category(category: LoreCategory) -> List[LoreEntry]:
 def get_lore_by_dimension(dimension: str) -> List[LoreEntry]:
     """Get all lore entries for a dimension."""
     return [e for e in ALL_LORE.values() if e.dimension == dimension or e.dimension == "all"]
+
+
+def get_related_lore(entry_id: str, discovered_only: bool = False) -> List[LoreEntry]:
+    """Get related lore entries for a lore ID."""
+    entry = ALL_LORE.get(entry_id)
+    if not entry:
+        return []
+    related = []
+    for related_id in entry.related_entries:
+        rel = ALL_LORE.get(related_id)
+        if not rel:
+            continue
+        if discovered_only and not rel.discovered:
+            continue
+        related.append(rel)
+    return related
+
+
+def get_unresolved_related_entries() -> Dict[str, List[str]]:
+    """Return unresolved related-entry IDs keyed by entry ID."""
+    unresolved: Dict[str, List[str]] = {}
+    for entry in ALL_LORE.values():
+        missing = [related_id for related_id in entry.related_entries if related_id not in ALL_LORE]
+        if missing:
+            unresolved[entry.id] = missing
+    return unresolved
 
 
 def discover_lore(entry_id: str) -> bool:

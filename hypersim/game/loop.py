@@ -175,6 +175,7 @@ class GameLoop:
         self._current_realm_id: Optional[str] = None
         self._steps_in_realm: int = 0
         self._current_encounter_entity: Optional[Entity] = None
+        self._encounter_prompt_entity: Optional[Entity] = None
         self._use_dimensional_combat: bool = True  # Use new system by default
         
         # === CINEMATIC SYSTEM ===
@@ -209,12 +210,12 @@ class GameLoop:
                 other = entity_a
             
             if player and other:
-                # Player colliding with encounter trigger - start combat!
+                # Player colliding with encounter trigger - prompt or start combat.
                 if other.has_tag("encounter_trigger"):
                     ai_brain = other.get(AIBrain)
                     if ai_brain and ai_brain.state.get("enemy_id"):
                         enemy_id = ai_brain.state["enemy_id"]
-                        self._trigger_encounter(enemy_id, other)
+                        self._handle_encounter_contact(other, enemy_id)
                         return  # Don't deal damage if starting combat
                 
                 # Player colliding with regular enemy (no encounter system)
@@ -276,6 +277,11 @@ class GameLoop:
         
         self.world.on_event("collision", on_collision)
         self.world.on_event("player_interact", on_interact)
+        
+        # Shared events for the encounter choice prompt.
+        self.dialogue.register_event("encounter_choice_talk", self._on_encounter_choice_talk)
+        self.dialogue.register_event("encounter_choice_ignore", self._on_encounter_choice_ignore)
+        self.dialogue.register_event("encounter_choice_fight", self._on_encounter_choice_fight)
     
     def _collect_pickup(self, player: Entity, pickup_entity: Entity) -> None:
         """Handle player collecting a pickup."""
@@ -701,8 +707,8 @@ class GameLoop:
         self._current_realm_id = "origin_point"
         
         # === ORIGIN POINT REALM (-10 to 0) ===
-        # Point Spirits - gentle, timid beings (yellow-white glow)
-        point_spirit_positions = [-5.0, -8.0]
+        # Point Spirits - one gentle introduction encounter near the origin.
+        point_spirit_positions = [-6.0]
         for i, x in enumerate(point_spirit_positions):
             spirit = Entity(id=f"point_spirit_{i}")
             spirit.add(Transform(position=np.array([x, 0.0, 0.0, 0.0])))
@@ -729,7 +735,7 @@ class GameLoop:
         line_walker.add(Health(current=15, max=15))
         line_walker.add(AIBrain(
             behavior="oscillate",
-            state={"center": 8.0, "amplitude": 4.0, "speed": 2.0, "direction": 1,
+            state={"center": 8.0, "amplitude": 2.5, "speed": 1.2, "direction": 1,
                    "enemy_id": "line_walker", "realm": "forward_path"}
         ))
         line_walker.add(DimensionAnchor(dimension_id="1d"))
@@ -745,7 +751,7 @@ class GameLoop:
         sentinel.add(Health(current=25, max=25))
         sentinel.add(AIBrain(
             behavior="oscillate",
-            state={"center": 15.0, "amplitude": 5.0, "speed": 3.0, "direction": 1,
+            state={"center": 15.0, "amplitude": 2.0, "speed": 1.0, "direction": 1,
                    "enemy_id": "forward_sentinel", "realm": "forward_path"}
         ))
         sentinel.add(DimensionAnchor(dimension_id="1d"))
@@ -754,7 +760,7 @@ class GameLoop:
         
         # === BACKWARD VOID REALM (-40 to -10) ===
         # Void Echoes - philosophical beings from the void (dark purple)
-        void_echo_positions = [-20.0, -30.0]
+        void_echo_positions = [-24.0]
         for i, x in enumerate(void_echo_positions):
             echo = Entity(id=f"void_echo_{i}")
             echo.add(Transform(position=np.array([x, 0.0, 0.0, 0.0])))
@@ -764,7 +770,7 @@ class GameLoop:
             echo.add(Health(current=20, max=20))
             echo.add(AIBrain(
                 behavior="oscillate",
-                state={"center": x, "amplitude": 2.0, "speed": 1.0, "direction": -1,
+                state={"center": x, "amplitude": 1.5, "speed": 0.8, "direction": -1,
                        "enemy_id": "void_echo", "realm": "backward_void"}
             ))
             echo.add(DimensionAnchor(dimension_id="1d"))
@@ -797,7 +803,7 @@ class GameLoop:
         guardian.add(Health(current=40, max=40))
         guardian.add(AIBrain(
             behavior="oscillate",
-            state={"center": 35.0, "amplitude": 3.0, "speed": 1.5, "direction": 1,
+            state={"center": 35.0, "amplitude": 1.5, "speed": 0.8, "direction": 1,
                    "enemy_id": "segment_guardian", "realm": "the_endpoint", "is_boss": True}
         ))
         guardian.add(DimensionAnchor(dimension_id="1d"))
@@ -1122,6 +1128,10 @@ class GameLoop:
         if not self.combat or self.combat.in_combat:
             return
         
+        # 1D already has curated encounter entities; random battles feel repetitive here.
+        if self.session.active_dimension.id == "1d":
+            return
+        
         # Only check encounters when player moves
         player = self.world.get("player")
         if not player:
@@ -1189,6 +1199,160 @@ class GameLoop:
                 self.audio.play("encounter")
                 self.overlays.notify("⚔️ ENCOUNTER!", duration=1.5, color=(255, 100, 100))
     
+    def _is_entity_on_encounter_cooldown(self, entity: Entity) -> bool:
+        """Return True if this entity should not re-trigger encounter logic yet."""
+        cooldown_until = getattr(entity, "_encounter_cooldown_until_ms", 0)
+        return pygame.time.get_ticks() < cooldown_until
+    
+    def _set_entity_encounter_cooldown(self, entity: Entity, seconds: float) -> None:
+        """Set an encounter cooldown on the entity."""
+        entity._encounter_cooldown_until_ms = pygame.time.get_ticks() + int(max(0.0, seconds) * 1000)
+    
+    def _handle_encounter_contact(self, entity: Entity, enemy_id: str) -> None:
+        """Handle contact with an encounter entity."""
+        # Check if any combat system is already active.
+        old_combat_busy = self.combat and (self.combat.in_combat or self.combat.transitioning)
+        dim_combat_busy = self.dimensional_combat and (self.dimensional_combat.in_combat or self.dimensional_combat.transitioning)
+        if old_combat_busy or dim_combat_busy:
+            return
+        
+        if not entity.active or entity.has_tag("friendly"):
+            return
+        
+        if self._is_entity_on_encounter_cooldown(entity):
+            return
+        
+        # In 1D we offer a choice prompt instead of instant aggression.
+        if self.session.active_dimension.id == "1d":
+            if self.dialogue.is_active:
+                return
+            self._show_encounter_prompt(entity, enemy_id)
+            return
+        
+        self._trigger_encounter(enemy_id, entity)
+    
+    def _show_encounter_prompt(self, entity: Entity, enemy_id: str) -> None:
+        """Show Talk / Ignore / Fight prompt for a nearby encounter entity."""
+        from hypersim.game.ui.textbox import DialogueSequence, DialogueLine, TextBoxStyle
+        from hypersim.game.combat.enemies import get_enemy
+        
+        if self.dialogue.is_active:
+            return
+        
+        enemy = get_enemy(enemy_id)
+        enemy_name = enemy.name if enemy else enemy_id.replace("_", " ").title()
+        seq_id = f"encounter_prompt_{entity.id}"
+        
+        self._encounter_prompt_entity = entity
+        
+        seq = DialogueSequence(
+            id=seq_id,
+            lines=[
+                DialogueLine(
+                    speaker=enemy_name,
+                    text="A nearby presence notices you. How do you respond?",
+                    style=TextBoxStyle.CHARACTER,
+                    choices=[
+                        ("Talk first.", "encounter_choice_talk"),
+                        ("Ignore and move on.", "encounter_choice_ignore"),
+                        ("Fight.", "encounter_choice_fight"),
+                    ],
+                )
+            ],
+            pause_game=True,
+            can_skip=False,
+        )
+        self.dialogue.register_sequence(seq)
+        self.dialogue.start_sequence(seq_id)
+    
+    def _get_pending_encounter_prompt(self) -> tuple[Optional[Entity], str]:
+        """Get currently prompted encounter entity and enemy id."""
+        entity = self._encounter_prompt_entity
+        if not entity or not entity.active:
+            self._encounter_prompt_entity = None
+            return None, ""
+        
+        ai_brain = entity.get(AIBrain)
+        enemy_id = ai_brain.state.get("enemy_id", "") if ai_brain else ""
+        if not enemy_id:
+            self._encounter_prompt_entity = None
+            return None, ""
+        return entity, enemy_id
+    
+    def _can_talk_pacify(self, enemy_id: str) -> bool:
+        """Return whether this enemy can be permanently calmed by dialogue."""
+        return enemy_id in {"point_spirit", "line_walker", "void_echo", "toll_collector"}
+    
+    def _get_talk_response(self, enemy_id: str) -> str:
+        """Contextual one-line response for talk-first encounters."""
+        responses = {
+            "point_spirit": "\"I only wanted to be seen.\"",
+            "line_walker": "\"You move strangely... but not with malice.\"",
+            "forward_sentinel": "\"State your direction. I will watch your next step.\"",
+            "void_echo": "\"Even silence can be a truce.\"",
+            "toll_collector": "\"A polite traveler! No toll for kindness today.\"",
+            "segment_guardian": "\"Understanding before violence. Good.\"",
+        }
+        return responses.get(enemy_id, "The being studies you, then eases back.")
+    
+    def _on_encounter_choice_talk(self) -> None:
+        """Handle choosing to talk first at an encounter prompt."""
+        from hypersim.game.combat.enemies import get_enemy
+        
+        entity, enemy_id = self._get_pending_encounter_prompt()
+        self.dialogue.stop()
+        self._encounter_prompt_entity = None
+        
+        if not entity or not enemy_id:
+            return
+        
+        enemy = get_enemy(enemy_id)
+        enemy_name = enemy.name if enemy else enemy_id.replace("_", " ").title()
+        
+        # Give breathing room to prevent immediate re-prompting.
+        self._set_entity_encounter_cooldown(entity, 6.0)
+        
+        if self._can_talk_pacify(enemy_id):
+            entity.remove_tag("encounter_trigger")
+            entity.tag("friendly")
+            renderable = entity.get(Renderable)
+            if renderable:
+                renderable.color = (100, 230, 160)
+            self.overlays.notify(f"{enemy_name} stands down.", duration=2.0, color=(100, 230, 160))
+        else:
+            self.overlays.notify(f"{enemy_name} remains wary.", duration=2.0, color=(220, 180, 120))
+        
+        self._play_sequence_inline(
+            f"encounter_talk_{entity.id}",
+            [
+                {
+                    "speaker": enemy_name,
+                    "text": self._get_talk_response(enemy_id),
+                    "style": TextBoxStyle.CHARACTER,
+                }
+            ],
+            pause=True,
+        )
+    
+    def _on_encounter_choice_ignore(self) -> None:
+        """Handle choosing to ignore an encounter."""
+        entity, _ = self._get_pending_encounter_prompt()
+        self.dialogue.stop()
+        self._encounter_prompt_entity = None
+        
+        if entity:
+            self._set_entity_encounter_cooldown(entity, 8.0)
+        self.overlays.notify("You keep your distance.", duration=1.8, color=(170, 170, 190))
+    
+    def _on_encounter_choice_fight(self) -> None:
+        """Handle choosing to fight from the encounter prompt."""
+        entity, enemy_id = self._get_pending_encounter_prompt()
+        self.dialogue.stop()
+        self._encounter_prompt_entity = None
+        
+        if entity and enemy_id:
+            self._trigger_encounter(enemy_id, entity)
+    
     def _trigger_encounter(self, enemy_id: str, entity: Entity) -> None:
         """Trigger a combat encounter from touching an entity in the world.
         
@@ -1203,8 +1367,8 @@ class GameLoop:
         if old_combat_busy or dim_combat_busy:
             return
         
-        # Don't re-trigger recently fought entities
-        if hasattr(entity, '_encounter_cooldown') and entity._encounter_cooldown > 0:
+        # Don't re-trigger recently fought / prompted entities.
+        if self._is_entity_on_encounter_cooldown(entity):
             return
         
         # Get enemy info from AI brain
@@ -1305,11 +1469,13 @@ class GameLoop:
                 # Spared enemies become friendly (remove encounter trigger)
                 entity.remove_tag("encounter_trigger")
                 entity.tag("friendly")
+                self._set_entity_encounter_cooldown(entity, 10.0)
                 # Change color to indicate friendliness
                 renderable = entity.get(Renderable)
                 if renderable:
                     renderable.color = (100, 255, 150)  # Greenish
             elif result == CombatResult.FLEE:
+                self._set_entity_encounter_cooldown(entity, 8.0)
                 # Move player away from enemy to prevent immediate re-encounter
                 player = self.world.get("player")
                 if player:

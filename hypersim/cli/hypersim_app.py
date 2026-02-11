@@ -61,6 +61,19 @@ THEME = Theme()
 
 
 # =============================================================================
+# App Settings
+# =============================================================================
+
+@dataclass
+class AppSettings:
+    """User-configurable settings for the launcher UI."""
+    animate_background: bool = True
+    show_particles: bool = True
+    show_tesseract: bool = True
+    show_grid: bool = True
+    reduced_motion: bool = False
+
+# =============================================================================
 # Animated Background
 # =============================================================================
 
@@ -71,6 +84,11 @@ class AnimatedBackground:
         self.width = width
         self.height = height
         self.time = 0.0
+        self.grid_scroll = 0.0
+        
+        # Backdrop layers
+        self.gradient = self._build_gradient((6, 10, 18), (3, 5, 12))
+        self.vignette = self._build_vignette()
         
         # Floating particles
         self.particles = []
@@ -83,6 +101,10 @@ class AnimatedBackground:
                 'speed': np.random.uniform(0.2, 0.5),
                 'size': np.random.uniform(2, 5),
             })
+
+        # Starfield + nebulae
+        self.stars = self._init_stars(180)
+        self.nebulae = self._init_nebulae(4)
         
         # Wireframe tesseract vertices
         self.tesseract_verts = self._create_tesseract()
@@ -103,34 +125,141 @@ class AnimatedBackground:
             w = 1 if (i & 8) else -1
             verts.append([x, y, z, w])
         return np.array(verts, dtype=np.float64)
-    
-    def update(self, dt: float) -> None:
-        """Update animation."""
-        self.time += dt
-        
-        for p in self.particles:
-            p['y'] -= p['speed'] * 30 * dt
-            p['w'] += dt * 0.5
-            if p['y'] < -10:
-                p['y'] = self.height + 10
-                p['x'] = np.random.uniform(0, self.width)
-    
-    def draw(self, surface: pygame.Surface) -> None:
-        """Draw animated background."""
-        # Draw particles
-        for p in self.particles:
-            alpha = int(80 + 40 * math.sin(p['w']))
-            size = int(p['size'] * (0.5 + 0.5 * p['z']))
+
+    def _build_gradient(self, top: Tuple[int, int, int], bottom: Tuple[int, int, int]) -> pygame.Surface:
+        """Create a vertical gradient background."""
+        surf = pygame.Surface((self.width, self.height))
+        for y in range(self.height):
+            t = y / max(1, self.height - 1)
             color = (
-                int(60 + 30 * math.sin(p['w'])),
-                int(80 + 20 * math.sin(p['w'] + 1)),
-                int(120 + 30 * math.sin(p['w'] + 2)),
+                int(top[0] + (bottom[0] - top[0]) * t),
+                int(top[1] + (bottom[1] - top[1]) * t),
+                int(top[2] + (bottom[2] - top[2]) * t),
             )
-            if 0 < p['y'] < self.height:
-                pygame.draw.circle(surface, color, (int(p['x']), int(p['y'])), size)
-        
+            pygame.draw.line(surf, color, (0, y), (self.width, y))
+        return surf
+
+    def _build_vignette(self) -> pygame.Surface:
+        """Create a soft vignette to focus the center."""
+        surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        center = (self.width // 2, self.height // 2)
+        max_radius = int(max(self.width, self.height) * 0.75)
+        for i in range(10):
+            radius = int(max_radius * (0.55 + i * 0.04))
+            alpha = min(140, 12 + i * 12)
+            pygame.draw.circle(surf, (0, 0, 0, alpha), center, radius, width=160)
+        return surf
+
+    def _init_stars(self, count: int) -> List[Tuple[float, float, float, float, float]]:
+        """Initialize starfield points."""
+        stars = []
+        for _ in range(count):
+            stars.append((
+                np.random.uniform(0, self.width),
+                np.random.uniform(0, self.height),
+                np.random.uniform(0.2, 1.0),
+                np.random.uniform(0.6, 2.0),
+                np.random.uniform(0, math.tau),
+            ))
+        return stars
+
+    def _init_nebulae(self, count: int) -> List[Tuple[float, float, float, Tuple[int, int, int], float, float]]:
+        """Initialize nebula glows."""
+        colors = [
+            (60, 80, 160),
+            (120, 60, 160),
+            (50, 120, 140),
+            (100, 80, 140),
+        ]
+        nebulae = []
+        for _ in range(count):
+            nebulae.append((
+                np.random.uniform(-200, self.width + 200),
+                np.random.uniform(-200, self.height + 200),
+                np.random.uniform(180, 360),
+                colors[np.random.randint(0, len(colors))],
+                np.random.uniform(0.04, 0.12),
+                np.random.uniform(-6, 6),
+            ))
+        return nebulae
+    
+    def update(self, dt: float, settings: Optional[AppSettings] = None) -> None:
+        """Update animation."""
+        if settings and not settings.animate_background:
+            return
+
+        motion = 0.4 if settings and settings.reduced_motion else 1.0
+        dt *= motion
+        self.time += dt
+
+        if settings is None or settings.show_particles:
+            for p in self.particles:
+                p['y'] -= p['speed'] * 30 * dt
+                p['w'] += dt * 0.5
+                if p['y'] < -10:
+                    p['y'] = self.height + 10
+                    p['x'] = np.random.uniform(0, self.width)
+
+        if settings is None or settings.show_grid:
+            self.grid_scroll += dt * 20
+
+        # Nebula drift
+        for idx, nebula in enumerate(self.nebulae):
+            x, y, radius, color, alpha, drift = nebula
+            x += drift * dt
+            y += drift * 0.6 * dt
+            if x < -radius:
+                x = self.width + radius
+            if x > self.width + radius:
+                x = -radius
+            if y < -radius:
+                y = self.height + radius
+            if y > self.height + radius:
+                y = -radius
+            self.nebulae[idx] = (x, y, radius, color, alpha, drift)
+    
+    def draw(self, surface: pygame.Surface, settings: Optional[AppSettings] = None) -> None:
+        """Draw animated background."""
+        surface.blit(self.gradient, (0, 0))
+
+        # Nebulae
+        for x, y, radius, color, alpha, _ in self.nebulae:
+            nebula_surf = pygame.Surface((int(radius * 2), int(radius * 2)), pygame.SRCALPHA)
+            for i in range(4):
+                r = int(radius * (1 - i * 0.18))
+                a = int(255 * alpha * (1 - i * 0.2))
+                pygame.draw.circle(nebula_surf, (*color, a), (int(radius), int(radius)), r)
+            surface.blit(nebula_surf, (int(x - radius), int(y - radius)), special_flags=pygame.BLEND_ADD)
+
+        # Grid
+        if settings is None or settings.show_grid:
+            self._draw_grid(surface)
+
+        # Stars
+        for x, y, depth, size, phase in self.stars:
+            twinkle = 0.6 + 0.4 * math.sin(self.time * 0.8 + phase)
+            brightness = int(40 + 160 * twinkle * depth)
+            color = (brightness, brightness, min(255, brightness + 40))
+            radius = max(1, int(size * (0.7 + twinkle * 0.4)))
+            surface.fill(color, (int(x), int(y), radius, radius))
+
+        # Floating particles
+        if settings is None or settings.show_particles:
+            for p in self.particles:
+                size = int(p['size'] * (0.5 + 0.5 * p['z']))
+                color = (
+                    int(60 + 30 * math.sin(p['w'])),
+                    int(80 + 20 * math.sin(p['w'] + 1)),
+                    int(120 + 30 * math.sin(p['w'] + 2)),
+                )
+                if 0 < p['y'] < self.height:
+                    pygame.draw.circle(surface, color, (int(p['x']), int(p['y'])), size)
+
         # Draw rotating tesseract in corner
-        self._draw_tesseract(surface)
+        if settings is None or settings.show_tesseract:
+            self._draw_tesseract(surface)
+
+        surface.blit(self.vignette, (0, 0))
     
     def _draw_tesseract(self, surface: pygame.Surface) -> None:
         """Draw a small rotating tesseract."""
@@ -177,6 +306,24 @@ class AnimatedBackground:
             )
             pygame.draw.line(surface, color, (p1[0], p1[1]), (p2[0], p2[1]), 1)
 
+    def _draw_grid(self, surface: pygame.Surface) -> None:
+        """Draw subtle perspective grid lines."""
+        grid_color = (18, 24, 40)
+        spacing = 70
+        horizon_y = int(self.height * 0.3)
+        scroll = int(self.grid_scroll) % spacing
+
+        for i in range(18):
+            y = self.height - i * spacing + scroll
+            if y < horizon_y:
+                continue
+            pygame.draw.line(surface, grid_color, (0, y), (self.width, y), 1)
+
+        for i in range(-8, 9):
+            x_bottom = self.width // 2 + i * spacing
+            x_top = int(self.width // 2 + i * spacing * 0.3)
+            pygame.draw.line(surface, grid_color, (x_bottom, self.height), (x_top, horizon_y), 1)
+
 
 # =============================================================================
 # Menu Card
@@ -202,18 +349,28 @@ class MenuCard:
         self.on_click = on_click
         
         self.hovered = False
+        self.focused = False
         self.hover_anim = 0.0
+        self._pulse = 0.0
         
         self._font_title = pygame.font.SysFont("Arial", 28, bold=True)
         self._font_desc = pygame.font.SysFont("Arial", 16)
         self._font_icon = pygame.font.SysFont("Arial", 48, bold=True)
     
+    def set_focus(self, focused: bool) -> None:
+        """Set keyboard focus state."""
+        self.focused = focused
+
     def update(self, dt: float, mouse_pos: Tuple[int, int]) -> None:
         """Update hover state."""
         self.hovered = self.rect.collidepoint(mouse_pos)
         
-        target = 1.0 if self.hovered else 0.0
+        target = 1.0 if (self.hovered or self.focused) else 0.0
         self.hover_anim += (target - self.hover_anim) * dt * 10
+        if self.focused:
+            self._pulse = (self._pulse + dt * 2.0) % (math.tau)
+        else:
+            self._pulse = 0.0
     
     def handle_event(self, event: pygame.event.Event) -> bool:
         """Handle click events."""
@@ -226,10 +383,11 @@ class MenuCard:
     def draw(self, surface: pygame.Surface) -> None:
         """Draw the card."""
         # Background with hover effect
+        focus_boost = 0.2 if self.focused else 0.0
         bg_color = (
-            int(THEME.bg_card[0] + (THEME.bg_card_hover[0] - THEME.bg_card[0]) * self.hover_anim),
-            int(THEME.bg_card[1] + (THEME.bg_card_hover[1] - THEME.bg_card[1]) * self.hover_anim),
-            int(THEME.bg_card[2] + (THEME.bg_card_hover[2] - THEME.bg_card[2]) * self.hover_anim),
+            int(THEME.bg_card[0] + (THEME.bg_card_hover[0] - THEME.bg_card[0]) * self.hover_anim + 12 * focus_boost),
+            int(THEME.bg_card[1] + (THEME.bg_card_hover[1] - THEME.bg_card[1]) * self.hover_anim + 12 * focus_boost),
+            int(THEME.bg_card[2] + (THEME.bg_card_hover[2] - THEME.bg_card[2]) * self.hover_anim + 12 * focus_boost),
         )
         
         # Draw card with slight lift on hover
@@ -250,10 +408,11 @@ class MenuCard:
         pygame.draw.rect(surface, bg_color, draw_rect, border_radius=16)
         
         # Accent border on hover
+        pulse = 0.6 + 0.4 * math.sin(self._pulse)
         border_color = (
-            int(THEME.border[0] + (self.accent_color[0] - THEME.border[0]) * self.hover_anim * 0.5),
-            int(THEME.border[1] + (self.accent_color[1] - THEME.border[1]) * self.hover_anim * 0.5),
-            int(THEME.border[2] + (self.accent_color[2] - THEME.border[2]) * self.hover_anim * 0.5),
+            int(THEME.border[0] + (self.accent_color[0] - THEME.border[0]) * (self.hover_anim * 0.5 + focus_boost * pulse)),
+            int(THEME.border[1] + (self.accent_color[1] - THEME.border[1]) * (self.hover_anim * 0.5 + focus_boost * pulse)),
+            int(THEME.border[2] + (self.accent_color[2] - THEME.border[2]) * (self.hover_anim * 0.5 + focus_boost * pulse)),
         )
         pygame.draw.rect(surface, border_color, draw_rect, width=2, border_radius=16)
         
@@ -289,7 +448,7 @@ class MenuCard:
         surface.blit(desc_surf, (draw_rect.x + 110, draw_rect.y + 60))
         
         # Arrow indicator
-        if self.hover_anim > 0.1:
+        if self.hover_anim > 0.1 or self.focused:
             arrow_x = draw_rect.right - 40
             arrow_y = draw_rect.centery
             arrow_color = (*self.accent_color, int(200 * self.hover_anim))
@@ -321,65 +480,120 @@ class HyperSimApp:
         # Current mode
         self.mode = AppMode.MAIN_MENU
         self.running = True
+
+        # Settings
+        self.settings = AppSettings()
         
         # Background
         self.background = AnimatedBackground(width, height)
         
         # Fonts
-        self.font_logo = pygame.font.SysFont("Arial", 64, bold=True)
-        self.font_tagline = pygame.font.SysFont("Arial", 20)
-        self.font_version = pygame.font.SysFont("Arial", 14)
-        self.font_hint = pygame.font.SysFont("Arial", 16)
+        self.font_logo = pygame.font.SysFont("Futura", 68, bold=True)
+        self.font_tagline = pygame.font.SysFont("Avenir", 20)
+        self.font_version = pygame.font.SysFont("Avenir", 14)
+        self.font_hint = pygame.font.SysFont("Avenir", 16)
+        self.font_section = pygame.font.SysFont("Avenir", 18, bold=True)
+        self.font_body = pygame.font.SysFont("Avenir", 16)
         
         # Menu cards
         self._create_menu_cards()
+
+        self.menu_grid_cols = 2
+        self.selected_card = 0
         
         # Sub-applications (lazy loaded)
         self._explorer = None
         self._sandbox = None
+
+        # Settings UI state
+        self.settings_index = 0
+        self.settings_items = [
+            {"label": "Animated background", "type": "toggle", "attr": "animate_background"},
+            {"label": "Show particles", "type": "toggle", "attr": "show_particles"},
+            {"label": "Show tesseract", "type": "toggle", "attr": "show_tesseract"},
+            {"label": "Show grid", "type": "toggle", "attr": "show_grid"},
+            {"label": "Reduced motion", "type": "toggle", "attr": "reduced_motion"},
+            {"label": "Back to menu", "type": "action", "action": self._return_to_menu},
+        ]
+        self._settings_rects: List[pygame.Rect] = []
+
+        # Explorer metadata (optional)
+        self.shape_count: Optional[int] = None
+        try:
+            from .demo_menu_v2 import DEMO_OBJECTS
+            self.shape_count = len(DEMO_OBJECTS)
+        except Exception:
+            self.shape_count = None
     
     def _create_menu_cards(self) -> None:
         """Create the main menu cards."""
-        card_width = 500
-        card_height = 100
-        card_x = (self.width - card_width) // 2
-        start_y = 320
-        spacing = 130
-        
-        self.menu_cards = [
-            MenuCard(
-                rect=pygame.Rect(card_x, start_y, card_width, card_height),
-                title="Object Explorer",
-                description="Browse and visualize 4D polytopes with interactive controls",
-                icon_char="◇",
-                accent_color=THEME.accent_blue,
-                on_click=lambda: self._launch_explorer(),
-            ),
-            MenuCard(
-                rect=pygame.Rect(card_x, start_y + spacing, card_width, card_height),
-                title="4D Sandbox",
-                description="Explore 4D space as a 4D being - spawn objects, move freely",
-                icon_char="◈",
-                accent_color=THEME.accent_purple,
-                on_click=lambda: self._launch_sandbox(),
-            ),
-            MenuCard(
-                rect=pygame.Rect(card_x, start_y + spacing * 2, card_width, card_height),
-                title="Settings",
-                description="Configure display, controls, and preferences",
-                icon_char="⚙",
-                accent_color=THEME.accent_cyan,
-                on_click=lambda: self._show_settings(),
-            ),
-            MenuCard(
-                rect=pygame.Rect(card_x, start_y + spacing * 3, card_width, card_height),
-                title="About HyperSim",
-                description="Learn about the project and 4D visualization",
-                icon_char="?",
-                accent_color=THEME.accent_orange,
-                on_click=lambda: self._show_about(),
-            ),
+        card_width = 520
+        card_height = 130
+        cols = 2
+        gap_x = 40
+        gap_y = 30
+        grid_width = card_width * cols + gap_x * (cols - 1)
+        start_x = (self.width - grid_width) // 2
+        start_y = 300
+
+        card_defs = [
+            ("Object Explorer", "Browse and visualize 4D polytopes with interactive controls", "◇", THEME.accent_blue, self._launch_explorer),
+            ("4D Sandbox", "Explore 4D space as a 4D being - spawn objects, move freely", "◈", THEME.accent_purple, self._launch_sandbox),
+            ("Settings", "Configure display, controls, and preferences", "⚙", THEME.accent_cyan, self._show_settings),
+            ("About HyperSim", "Learn about the project and 4D visualization", "?", THEME.accent_orange, self._show_about),
         ]
+
+        self.menu_cards = []
+        for idx, (title, desc, icon, accent, action) in enumerate(card_defs):
+            row = idx // cols
+            col = idx % cols
+            x = start_x + col * (card_width + gap_x)
+            y = start_y + row * (card_height + gap_y)
+            self.menu_cards.append(MenuCard(
+                rect=pygame.Rect(x, y, card_width, card_height),
+                title=title,
+                description=desc,
+                icon_char=icon,
+                accent_color=accent,
+                on_click=action,
+            ))
+
+    def _activate_selected_card(self) -> None:
+        """Launch the currently selected menu card."""
+        if not self.menu_cards:
+            return
+        card = self.menu_cards[self.selected_card % len(self.menu_cards)]
+        if card.on_click:
+            card.on_click()
+
+    def _move_card_selection(self, dx: int, dy: int) -> None:
+        """Move keyboard selection in the card grid."""
+        if not self.menu_cards:
+            return
+        cols = self.menu_grid_cols
+        rows = (len(self.menu_cards) + cols - 1) // cols
+        row = self.selected_card // cols
+        col = self.selected_card % cols
+        row = max(0, min(rows - 1, row + dy))
+        col = max(0, min(cols - 1, col + dx))
+        idx = row * cols + col
+        if idx >= len(self.menu_cards):
+            idx = len(self.menu_cards) - 1
+        self.selected_card = idx
+
+    def _toggle_setting(self, index: int) -> None:
+        """Toggle a settings item or run its action."""
+        if index < 0 or index >= len(self.settings_items):
+            return
+        item = self.settings_items[index]
+        if item["type"] == "toggle":
+            attr = item["attr"]
+            current = getattr(self.settings, attr)
+            setattr(self.settings, attr, not current)
+        elif item["type"] == "action":
+            action = item.get("action")
+            if callable(action):
+                action()
     
     def _launch_explorer(self) -> None:
         """Launch the object explorer mode."""
@@ -447,6 +661,16 @@ class HyperSimApp:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         self.running = False
+                    elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        self._activate_selected_card()
+                    elif event.key == pygame.K_UP:
+                        self._move_card_selection(0, -1)
+                    elif event.key == pygame.K_DOWN:
+                        self._move_card_selection(0, 1)
+                    elif event.key == pygame.K_LEFT:
+                        self._move_card_selection(-1, 0)
+                    elif event.key == pygame.K_RIGHT:
+                        self._move_card_selection(1, 0)
                     elif event.key == pygame.K_1:
                         self._launch_explorer()
                     elif event.key == pygame.K_2:
@@ -460,6 +684,18 @@ class HyperSimApp:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         self._return_to_menu()
+                    elif event.key == pygame.K_UP:
+                        self.settings_index = max(0, self.settings_index - 1)
+                    elif event.key == pygame.K_DOWN:
+                        self.settings_index = min(len(self.settings_items) - 1, self.settings_index + 1)
+                    elif event.key in (pygame.K_LEFT, pygame.K_RIGHT, pygame.K_RETURN, pygame.K_SPACE):
+                        self._toggle_setting(self.settings_index)
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    for idx, rect in enumerate(self._settings_rects):
+                        if rect.collidepoint(event.pos):
+                            self.settings_index = idx
+                            self._toggle_setting(idx)
+                            return
             
             elif self.mode == AppMode.ABOUT:
                 if event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
@@ -469,33 +705,62 @@ class HyperSimApp:
         """Update application state."""
         mouse_pos = pygame.mouse.get_pos()
         
+        if self.mode in (AppMode.MAIN_MENU, AppMode.SETTINGS, AppMode.ABOUT):
+            self.background.update(dt, self.settings)
+
         if self.mode == AppMode.MAIN_MENU:
-            self.background.update(dt)
-            for card in self.menu_cards:
+            hovered_any = False
+            for idx, card in enumerate(self.menu_cards):
+                card.set_focus(idx == self.selected_card)
                 card.update(dt, mouse_pos)
+                if card.hovered:
+                    self.selected_card = idx
+                    hovered_any = True
+            if hovered_any:
+                for idx, card in enumerate(self.menu_cards):
+                    card.set_focus(idx == self.selected_card)
     
     def render_main_menu(self) -> None:
         """Render the main menu."""
         # Background
         self.screen.fill(THEME.bg_dark)
-        self.background.draw(self.screen)
+        self.background.draw(self.screen, self.settings)
         
         # Logo
         logo_text = "HyperSim"
+        shadow = self.font_logo.render(logo_text, True, (20, 24, 36))
+        shadow_rect = shadow.get_rect(center=(self.width // 2 + 3, 88))
+        self.screen.blit(shadow, shadow_rect)
         logo_surf = self.font_logo.render(logo_text, True, THEME.text_primary)
         logo_x = (self.width - logo_surf.get_width()) // 2
         self.screen.blit(logo_surf, (logo_x, 80))
         
         # Accent line under logo
-        line_width = 200
+        line_width = 240
         line_x = (self.width - line_width) // 2
         pygame.draw.line(self.screen, THEME.accent_blue, (line_x, 160), (line_x + line_width, 160), 3)
         
         # Tagline
-        tagline = "4D Visualization Suite"
+        tagline = "Explore polytopes, space, and motion beyond 3D"
         tagline_surf = self.font_tagline.render(tagline, True, THEME.text_secondary)
         tagline_x = (self.width - tagline_surf.get_width()) // 2
         self.screen.blit(tagline_surf, (tagline_x, 180))
+        
+        # Status chips
+        chip_y = 215
+        chips = []
+        if self.shape_count is not None:
+            chips.append(f"{self.shape_count} shapes")
+        chips.append("Sandbox ready")
+        chips.append("GPU: Pygame")
+        x_cursor = (self.width - sum(self.font_hint.size(c)[0] + 28 for c in chips)) // 2
+        for chip in chips:
+            text_surf = self.font_hint.render(chip, True, THEME.text_secondary)
+            chip_rect = pygame.Rect(x_cursor, chip_y, text_surf.get_width() + 20, 26)
+            pygame.draw.rect(self.screen, THEME.bg_panel, chip_rect, border_radius=12)
+            pygame.draw.rect(self.screen, THEME.border, chip_rect, width=1, border_radius=12)
+            self.screen.blit(text_surf, (chip_rect.x + 10, chip_rect.y + 6))
+            x_cursor += chip_rect.width + 8
         
         # Version
         version = "v1.0.0"
@@ -505,10 +770,17 @@ class HyperSimApp:
         # Menu cards
         for card in self.menu_cards:
             card.draw(self.screen)
+
+        # Selected card helper
+        if self.menu_cards:
+            selected = self.menu_cards[self.selected_card]
+            hint_text = f"Selected: {selected.title}  (Enter to open)"
+            selected_surf = self.font_hint.render(hint_text, True, THEME.text_secondary)
+            self.screen.blit(selected_surf, (40, self.height - 70))
         
         # Keyboard hints
         hint_y = self.height - 40
-        hints = ["1-4: Quick select", "Esc: Quit"]
+        hints = ["Arrows: Navigate", "Enter: Open", "1-4: Quick launch", "Esc: Quit"]
         hint_text = "  |  ".join(hints)
         hint_surf = self.font_hint.render(hint_text, True, THEME.text_muted)
         hint_x = (self.width - hint_surf.get_width()) // 2
@@ -517,79 +789,100 @@ class HyperSimApp:
     def render_settings(self) -> None:
         """Render settings panel."""
         self.screen.fill(THEME.bg_dark)
-        
+        self.background.draw(self.screen, self.settings)
+
         # Title
         title = self.font_logo.render("Settings", True, THEME.text_primary)
         self.screen.blit(title, ((self.width - title.get_width()) // 2, 60))
-        
-        # Settings content
-        settings_text = [
-            "Display Settings",
-            "  Resolution: 1400 x 900",
-            "  Fullscreen: Off",
-            "",
-            "Controls",
-            "  Mouse Sensitivity: 1.0",
-            "  Invert Y-Axis: Off",
-            "",
-            "Rendering",
-            "  Line Width: 2",
-            "  Show Grid: On",
-            "  Particles: On",
-        ]
-        
-        y = 180
-        font = pygame.font.SysFont("Arial", 18)
-        for line in settings_text:
-            color = THEME.accent_cyan if not line.startswith("  ") and line else THEME.text_secondary
-            surf = font.render(line, True, color)
-            self.screen.blit(surf, (self.width // 2 - 150, y))
-            y += 30
-        
+
+        # Panel
+        panel_width = 560
+        panel_height = 420
+        panel_rect = pygame.Rect(0, 0, panel_width, panel_height)
+        panel_rect.center = (self.width // 2, self.height // 2 + 30)
+        pygame.draw.rect(self.screen, THEME.bg_panel, panel_rect, border_radius=16)
+        pygame.draw.rect(self.screen, THEME.border, panel_rect, width=2, border_radius=16)
+
+        # Items
+        self._settings_rects = []
+        y = panel_rect.y + 40
+        for idx, item in enumerate(self.settings_items):
+            item_rect = pygame.Rect(panel_rect.x + 30, y, panel_rect.width - 60, 44)
+            self._settings_rects.append(item_rect)
+            selected = idx == self.settings_index
+            bg = THEME.bg_card_hover if selected else THEME.bg_panel
+            pygame.draw.rect(self.screen, bg, item_rect, border_radius=10)
+            if selected:
+                pygame.draw.rect(self.screen, THEME.accent_cyan, item_rect, width=2, border_radius=10)
+
+            label = item["label"]
+            label_surf = self.font_body.render(label, True, THEME.text_primary if selected else THEME.text_secondary)
+            self.screen.blit(label_surf, (item_rect.x + 12, item_rect.y + 12))
+
+            if item["type"] == "toggle":
+                value = getattr(self.settings, item["attr"])
+                status = "ON" if value else "OFF"
+                status_color = THEME.accent_green if value else THEME.text_muted
+                pill = pygame.Rect(item_rect.right - 90, item_rect.y + 10, 70, 24)
+                pygame.draw.rect(self.screen, THEME.bg_dark, pill, border_radius=12)
+                pygame.draw.rect(self.screen, status_color, pill, width=2, border_radius=12)
+                status_surf = self.font_hint.render(status, True, status_color)
+                self.screen.blit(status_surf, (pill.x + 18, pill.y + 4))
+            else:
+                action_surf = self.font_hint.render("Enter", True, THEME.text_muted)
+                self.screen.blit(action_surf, (item_rect.right - 60, item_rect.y + 13))
+
+            y += 54
+
         # Back hint
-        hint = self.font_hint.render("Press ESC to return to menu", True, THEME.text_muted)
+        hint = self.font_hint.render("Arrow keys to move, Enter to toggle, ESC to return", True, THEME.text_muted)
         self.screen.blit(hint, ((self.width - hint.get_width()) // 2, self.height - 50))
     
     def render_about(self) -> None:
         """Render about panel."""
         self.screen.fill(THEME.bg_dark)
-        self.background.draw(self.screen)
+        self.background.draw(self.screen, self.settings)
         
         # Title
         title = self.font_logo.render("About HyperSim", True, THEME.text_primary)
         self.screen.blit(title, ((self.width - title.get_width()) // 2, 60))
         
-        # About content
+        panel_width = 760
+        panel_height = 520
+        panel_rect = pygame.Rect(0, 0, panel_width, panel_height)
+        panel_rect.center = (self.width // 2, self.height // 2 + 30)
+        pygame.draw.rect(self.screen, THEME.bg_panel, panel_rect, border_radius=16)
+        pygame.draw.rect(self.screen, THEME.border, panel_rect, width=2, border_radius=16)
+
         about_lines = [
             "HyperSim is a 4D visualization and exploration toolkit.",
             "",
-            "Features:",
-            "  • Visualize 4D polytopes (tesseract, 24-cell, 600-cell, etc.)",
-            "  • Explore 4D space with full movement in X, Y, Z, and W",
-            "  • See how 3D objects appear from a 4D perspective",
-            "  • Interactive rotation in all 6 planes",
+            "Highlights:",
+            "  - Visualize 4D polytopes (tesseract, 24-cell, 600-cell, and more).",
+            "  - Explore 4D space with movement across X, Y, Z, and W.",
+            "  - Inspect 3D cross-sections and 4D rotations in six planes.",
             "",
             "The Fourth Dimension:",
             "  Just as a 3D being can see inside a 2D square,",
             "  a 4D being can see inside a 3D cube - all at once.",
             "  Move in W to experience this impossible viewpoint.",
             "",
-            "Controls use WASD + QE for XYZ, R/F for W (ana/kata),",
-            "and arrow keys for 4D rotation.",
+            "Controls:",
+            "  WASD + QE for XYZ, R/F for W (ana/kata),",
+            "  arrow keys for 4D rotation.",
         ]
-        
-        y = 180
-        font = pygame.font.SysFont("Arial", 18)
+
+        y = panel_rect.y + 40
         for line in about_lines:
-            if line.endswith(":") and not line.startswith(" "):
+            if line.endswith(":") and not line.startswith("  "):
                 color = THEME.accent_orange
-            elif line.startswith("  •"):
+            elif line.startswith("  -"):
                 color = THEME.text_secondary
             else:
                 color = THEME.text_secondary
-            surf = font.render(line, True, color)
-            self.screen.blit(surf, ((self.width - 600) // 2, y))
-            y += 28
+            surf = self.font_body.render(line, True, color)
+            self.screen.blit(surf, (panel_rect.x + 40, y))
+            y += 26
         
         # Back hint
         hint = self.font_hint.render("Press any key to return to menu", True, THEME.text_muted)
