@@ -1,7 +1,7 @@
 """Improved interactive demo menu for HyperSim.
 
-A completely rewritten demo browser with modern UI, categories,
-search, settings, and many quality-of-life improvements.
+A modern, educational geometry browser for explaining how objects
+change as dimensional freedom increases.
 """
 from __future__ import annotations
 
@@ -406,7 +406,7 @@ class DemoMenu:
     
     def __init__(self, width: int = 1400, height: int = 900):
         pygame.init()
-        pygame.display.set_caption("HyperSim - 4D Object Explorer")
+        pygame.display.set_caption("Tessera - Dimensional Geometry Lab")
         
         self.width = width
         self.height = height
@@ -422,6 +422,7 @@ class DemoMenu:
         self.show_info = False
         self.show_help = False
         self.show_settings = False
+        self.lesson_mode = True
         
         # Settings
         self.spin_speed = 1.0
@@ -489,7 +490,7 @@ class DemoMenu:
     
     def _init_from_app(self) -> None:
         """Initialize when launched from the master app (screen already set)."""
-        pygame.display.set_caption("HyperSim - 4D Object Explorer")
+        pygame.display.set_caption("Tessera - Dimensional Geometry Lab")
         
         # State
         self.running = True
@@ -500,6 +501,7 @@ class DemoMenu:
         self.show_info = False
         self.show_help = False
         self.show_settings = False
+        self.lesson_mode = True
         
         # Settings
         self.spin_speed = 1.0
@@ -1274,15 +1276,17 @@ class DemoMenu:
         pygame.draw.line(self.screen, Colors.BORDER, (320, 0), (320, self.height), 1)
         
         # Title
-        title_surf = self.font_title.render("4D Objects", True, Colors.TEXT_PRIMARY)
+        title_surf = self.font_title.render("Geometry Lab", True, Colors.TEXT_PRIMARY)
         self.screen.blit(title_surf, (20, 20))
+        subtitle = self.font_small.render("Compare structures across dimensions", True, Colors.TEXT_MUTED)
+        self.screen.blit(subtitle, (20, 50))
         
         # Search and tabs
         self.search_box.draw(self.screen)
         self.category_tabs.draw(self.screen)
         
         # Results count
-        count_text = f"{len(self.filtered_objects)} results"
+        count_text = f"{len(self.filtered_objects)} lesson objects"
         count_surf = self.font_small.render(count_text, True, Colors.TEXT_MUTED)
         self.screen.blit(count_surf, (20, 156))
         
@@ -1389,7 +1393,7 @@ class DemoMenu:
         stats_y = 470
         pygame.draw.line(self.screen, Colors.BORDER, (panel_x + 15, stats_y), (self.width - 15, stats_y), 1)
         
-        stats_title = self.font_body.render("Geometry", True, Colors.TEXT_PRIMARY)
+        stats_title = self.font_body.render("Geometry Facts", True, Colors.TEXT_PRIMARY)
         self.screen.blit(stats_title, (panel_x + 15, stats_y + 10))
         
         stats_y += 40
@@ -1414,7 +1418,7 @@ class DemoMenu:
             pygame.draw.line(self.screen, Colors.BORDER, (panel_x + 15, stats_y), (self.width - 15, stats_y), 1)
             stats_y += 15
             
-            info_title = self.font_body.render("Math", True, Colors.TEXT_PRIMARY)
+            info_title = self.font_body.render("Math Model", True, Colors.TEXT_PRIMARY)
             self.screen.blit(info_title, (panel_x + 15, stats_y))
             stats_y += 25
             stats_y = self._draw_math_paragraph(
@@ -1424,6 +1428,9 @@ class DemoMenu:
                 max_width=270,
                 color=Colors.TEXT_SECONDARY,
             )
+        
+        if self.lesson_mode:
+            stats_y = self._draw_dimension_lesson_panel(panel_x, stats_y + 8, demo)
         
         # Buttons
         self.screenshot_btn.draw(self.screen)
@@ -1448,6 +1455,53 @@ class DemoMenu:
                            (panel_x + 20, progress_y + 3, progress_width, 14), border_radius=3)
             morph_text = self.font_small.render(f"Morphing... {int(self.morpher.progress * 100)}%", True, Colors.TEXT_PRIMARY)
             self.screen.blit(morph_text, (panel_x + 15, progress_y - 18))
+
+    def _build_dimension_lesson_lines(self, demo: DemoObject) -> List[str]:
+        """Return concise educational notes for the selected object."""
+        lines = [
+            "1D -> 2D: a line can turn and enclose area.",
+            "2D -> 3D: polygons fold into surfaces that bound volume.",
+            "3D -> 4D: volumes connect through W to form cells.",
+        ]
+        tags = set(demo.tags)
+        category = demo.category
+        
+        if "dual" in tags:
+            lines.append("Duality check: swapping vertices and cells preserves structure.")
+        elif "self-dual" in tags:
+            lines.append("Self-dual insight: vertex-cell symmetry survives dimensional lift.")
+        
+        if "prism" in tags or "Prisms" in category:
+            lines.append("Prism rule: nD shape × interval -> (n+1)D prism.")
+        elif "duoprism" in tags:
+            lines.append("Product rule: polygon × polygon creates a 4D duoprism.")
+        
+        if "manifold" in tags:
+            lines.append("Topology note: embedding in 4D can remove 3D self-intersections.")
+        elif "higher-dim" in tags:
+            lines.append("Projection note: this object originates above 4D and is projected down.")
+        
+        return lines[:5]
+
+    def _draw_dimension_lesson_panel(self, panel_x: int, start_y: int, demo: DemoObject) -> int:
+        """Draw educational notes explaining dimension gain effects."""
+        y = start_y + 8
+        pygame.draw.line(self.screen, Colors.BORDER, (panel_x + 15, y), (self.width - 15, y), 1)
+        y += 12
+        
+        title = self.font_body.render("What Changes With One More Dimension", True, Colors.TEXT_PRIMARY)
+        self.screen.blit(title, (panel_x + 15, y))
+        y += 24
+        
+        lines = self._build_dimension_lesson_lines(demo)
+        for line in lines:
+            rendered = self.font_small.render(line, True, Colors.TEXT_SECONDARY)
+            self.screen.blit(rendered, (panel_x + 15, y))
+            y += 20
+        
+        obj_line = self.font_small.render(f"Current example: {demo.name}", True, demo.color)
+        self.screen.blit(obj_line, (panel_x + 15, y + 2))
+        return y + 24
     
     def _draw_help_overlay(self) -> None:
         """Draw the help overlay."""
@@ -1470,13 +1524,14 @@ class DemoMenu:
                         (panel_x, panel_y, panel_width, panel_height), width=1, border_radius=12)
         
         # Title
-        title = self.font_title.render("Keyboard Shortcuts", True, Colors.TEXT_PRIMARY)
+        title = self.font_title.render("Learning Controls", True, Colors.TEXT_PRIMARY)
         self.screen.blit(title, (panel_x + 20, panel_y + 20))
         
         # Shortcuts
         shortcuts = [
             ("↑/↓/←/→", "Navigate objects"),
             ("Space", "Toggle auto-spin"),
+            ("L", "Toggle lesson notes"),
             ("G", "Cycle gradient modes"),
             ("P", "Toggle particles"),
             ("B", "Toggle motion blur"),
@@ -1524,8 +1579,9 @@ class DemoMenu:
         count_surf = self.font_small.render(count_text, True, Colors.TEXT_MUTED)
         self.screen.blit(count_surf, (bar_rect.right - count_surf.get_width() - 10, bar_rect.y + 8))
         
-        # Help hint
-        help_surf = self.font_small.render("Press H for help", True, Colors.TEXT_MUTED)
+        # Help hint + lesson mode state
+        mode = "ON" if self.lesson_mode else "OFF"
+        help_surf = self.font_small.render(f"H: help   L: lesson notes ({mode})", True, Colors.TEXT_MUTED)
         self.screen.blit(help_surf, (bar_rect.centerx - help_surf.get_width() // 2, bar_rect.y + 8))
     
     def handle_events(self) -> None:
@@ -1574,6 +1630,10 @@ class DemoMenu:
                         self.running = False
                 elif event.key == pygame.K_h:
                     self.show_help = not self.show_help
+                elif event.key == pygame.K_l:
+                    self.lesson_mode = not self.lesson_mode
+                    state = "enabled" if self.lesson_mode else "disabled"
+                    self._add_toast(f"Lesson notes {state}", Colors.ACCENT_BLUE)
                 elif event.key == pygame.K_SPACE:
                     self.auto_spin = not self.auto_spin
                     self.spin_toggle.value = self.auto_spin

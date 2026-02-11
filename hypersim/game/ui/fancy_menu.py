@@ -575,6 +575,7 @@ class FancyMainMenu:
         self.screen = screen
         self.width = screen.get_width()
         self.height = screen.get_height()
+        self.minimal_mode = True
         
         # State
         self.state = MenuState.MAIN
@@ -587,15 +588,19 @@ class FancyMainMenu:
         
         # Background
         self.cosmic_bg = CosmicBackground(self.width, self.height)
+        if self.minimal_mode:
+            # Keep only subtle stars for a cleaner menu backdrop.
+            self.cosmic_bg.grid_enabled = False
+            self.cosmic_bg.stars = self.cosmic_bg.stars[:90]
         
         # 4D shape
         self.shape_renderer = Shape4DRenderer()
         self.show_24cell = True  # Show 24-cell instead of tesseract for variety
         
         # Fonts
-        self._font_title = pygame.font.Font(None, 120)
-        self._font_subtitle = pygame.font.Font(None, 36)
-        self._font_button = pygame.font.Font(None, 32)
+        self._font_title = pygame.font.Font(None, 96)
+        self._font_subtitle = pygame.font.Font(None, 30)
+        self._font_button = pygame.font.Font(None, 34)
         self._font_small = pygame.font.Font(None, 24)
         
         # Buttons
@@ -622,10 +627,10 @@ class FancyMainMenu:
     
     def _init_buttons(self) -> None:
         """Initialize menu buttons."""
-        button_width = 280
-        button_height = 50
-        start_y = self.height // 2 + 50
-        spacing = 65
+        button_width = 320
+        button_height = 48
+        start_y = self.height // 2 + 10
+        spacing = 58
         center_x = self.width // 2 - button_width // 2
         
         # Main menu buttons
@@ -880,26 +885,27 @@ class FancyMainMenu:
         """Draw the menu."""
         # Cosmic background
         self.cosmic_bg.draw(self.screen)
-        self._draw_dimensional_overlay()
+        if not self.minimal_mode:
+            self._draw_dimensional_overlay()
         
-        # 4D shape in background
-        shape_center = (self.width // 2, self.height // 2 - 50)
-        if self.show_24cell:
-            self.shape_renderer.draw_24cell(
-                self.screen, shape_center, 
-                scale=150, color=(60, 100, 180)
-            )
-        else:
-            self.shape_renderer.draw_tesseract(
-                self.screen, shape_center,
-                scale=120, color=(60, 100, 180)
-            )
+            # 4D shape in background
+            shape_center = (self.width // 2, self.height // 2 - 50)
+            if self.show_24cell:
+                self.shape_renderer.draw_24cell(
+                    self.screen, shape_center, 
+                    scale=150, color=(60, 100, 180)
+                )
+            else:
+                self.shape_renderer.draw_tesseract(
+                    self.screen, shape_center,
+                    scale=120, color=(60, 100, 180)
+                )
         
         # Title
         self._draw_title()
         
         # Lore snippet panel
-        if self.state == MenuState.MAIN:
+        if self.state == MenuState.MAIN and not self.minimal_mode:
             self._draw_lore_panel()
         
         # Buttons (with fade-in)
@@ -911,27 +917,28 @@ class FancyMainMenu:
             self._draw_settings_panel()
         
         # Version
-        version_text = self._font_small.render("v0.1.0 Alpha", True, (140, 150, 170))
+        version_text = self._font_small.render("v0.1.0 Alpha", True, (130, 145, 165))
         self.screen.blit(version_text, (10, self.height - 25))
         
         # Controls hint
-        hint_text = self._font_small.render("Navigate with mouse • ESC to go back", True, (140, 150, 170))
+        hint = "Click to select • ESC to go back" if self.minimal_mode else "Navigate with mouse • ESC to go back"
+        hint_text = self._font_small.render(hint, True, (130, 145, 165))
         hint_rect = hint_text.get_rect(center=(self.width // 2, self.height - 20))
         self.screen.blit(hint_text, hint_rect)
     
     def _draw_title(self) -> None:
         """Draw the game title."""
-        title_y = 100 + int(self.title_offset)
+        title_y = 110 + int(self.title_offset)
         
         # Title text
-        title_color = (245, 235, 215)
+        title_color = (236, 232, 220)
         title_surf = self._font_title.render("TESSERA", True, title_color)
         title_rect = title_surf.get_rect(center=(self.width // 2, title_y))
         self.screen.blit(title_surf, title_rect)
         
         # Subtitle
-        subtitle_color = (255, 200, 120)
-        subtitle_surf = self._font_subtitle.render("Lore of the Multidimensional Spark", True, subtitle_color)
+        subtitle_color = (175, 188, 210)
+        subtitle_surf = self._font_subtitle.render("", True, subtitle_color)
         subtitle_rect = subtitle_surf.get_rect(center=(self.width // 2, title_y + 50))
         self.screen.blit(subtitle_surf, subtitle_rect)
 
@@ -1006,7 +1013,7 @@ class FancyMainMenu:
         """Draw active buttons."""
         active = self._get_active_buttons()
         # Glass panel behind main buttons for cohesion
-        if self.state == MenuState.MAIN and active:
+        if self.state == MenuState.MAIN and active and not self.minimal_mode:
             panel_width = 360
             panel_height = len(active) * 65 + 40
             panel_x = self.width // 2 - panel_width // 2

@@ -29,6 +29,7 @@ class ParticleType(Enum):
     VOID_ECHO = auto()         # Phasing dark particles
     LINE_WALKER = auto()       # Confused jittery motion
     FIRST_POINT = auto()       # Majestic purple aura
+    PLAYER_TRAIL = auto()      # Energetic trail around the player
     HEALING = auto()           # Flowing healing particles
     DEATH = auto()             # Death/disappear explosion
     GENERIC = auto()           # Default particle
@@ -81,26 +82,29 @@ class ParticleEmitter:
     def _configure_emitter(self) -> None:
         """Configure emitter based on particle type."""
         if self.particle_type == ParticleType.POINT_SPIRIT:
-            self.emit_rate = 0.15
-            self.max_particles = 8
-        elif self.particle_type == ParticleType.FORWARD_SENTINEL:
-            self.emit_rate = 0.08
+            self.emit_rate = 0.09
             self.max_particles = 12
-        elif self.particle_type == ParticleType.VOID_ECHO:
-            self.emit_rate = 0.12
-            self.max_particles = 10
-        elif self.particle_type == ParticleType.LINE_WALKER:
-            self.emit_rate = 0.1
-            self.max_particles = 6
-        elif self.particle_type == ParticleType.FIRST_POINT:
-            self.emit_rate = 0.08
+        elif self.particle_type == ParticleType.FORWARD_SENTINEL:
+            self.emit_rate = 0.05
             self.max_particles = 20
+        elif self.particle_type == ParticleType.VOID_ECHO:
+            self.emit_rate = 0.08
+            self.max_particles = 14
+        elif self.particle_type == ParticleType.LINE_WALKER:
+            self.emit_rate = 0.065
+            self.max_particles = 10
+        elif self.particle_type == ParticleType.FIRST_POINT:
+            self.emit_rate = 0.05
+            self.max_particles = 30
+        elif self.particle_type == ParticleType.PLAYER_TRAIL:
+            self.emit_rate = 0.04
+            self.max_particles = 24
         elif self.particle_type == ParticleType.HEALING:
             self.emit_rate = 0.05
             self.max_particles = 15
         else:
-            self.emit_rate = 0.2
-            self.max_particles = 5
+            self.emit_rate = 0.12
+            self.max_particles = 8
     
     def update(self, dt: float, new_x: Optional[float] = None, new_y: Optional[float] = None) -> None:
         """Update emitter and all particles."""
@@ -114,8 +118,8 @@ class ParticleEmitter:
         
         # Emit new particles
         self.emit_timer += dt
-        if self.emit_timer >= self.emit_rate and len(self.particles) < self.max_particles:
-            self.emit_timer = 0.0
+        while self.emit_timer >= self.emit_rate and len(self.particles) < self.max_particles:
+            self.emit_timer -= self.emit_rate
             self._emit_particle()
         
         # Update existing particles
@@ -137,6 +141,8 @@ class ParticleEmitter:
             self._emit_line_walker()
         elif self.particle_type == ParticleType.FIRST_POINT:
             self._emit_first_point()
+        elif self.particle_type == ParticleType.PLAYER_TRAIL:
+            self._emit_player_trail()
         else:
             self._emit_generic()
     
@@ -243,6 +249,26 @@ class ParticleEmitter:
             particle_type=ParticleType.FIRST_POINT,
             phase=random.uniform(0, 2 * math.pi),
         ))
+
+    def _emit_player_trail(self) -> None:
+        """Emit bright particles that orbit and drift from the player."""
+        self.particles.append(Particle(
+            x=self.base_x + random.uniform(-7, 7),
+            y=self.base_y + random.uniform(-7, 7),
+            vx=random.uniform(-22, 22),
+            vy=random.uniform(-16, 16),
+            size=random.uniform(1.5, 3.5),
+            alpha=random.uniform(0.5, 0.9),
+            life=random.uniform(0.35, 0.85),
+            max_life=0.85,
+            color=(
+                min(255, self.color[0] + random.randint(20, 70)),
+                min(255, self.color[1] + random.randint(20, 70)),
+                min(255, self.color[2] + random.randint(20, 90)),
+            ),
+            particle_type=ParticleType.PLAYER_TRAIL,
+            phase=random.uniform(0, 2 * math.pi),
+        ))
     
     def _emit_generic(self) -> None:
         """Emit generic particles."""
@@ -296,6 +322,14 @@ class ParticleEmitter:
             spiral = math.sin(p.phase) * 5
             p.x += spiral * dt
             p.alpha = 0.5 * (p.life / p.max_life)
+        elif p.particle_type == ParticleType.PLAYER_TRAIL:
+            # Tight orbit near the player with a quick fade.
+            p.phase += dt * 6.0
+            p.x += math.cos(p.phase) * 8.0 * dt
+            p.y += math.sin(p.phase * 0.7) * 6.0 * dt
+            p.vx *= 0.94
+            p.vy *= 0.94
+            p.alpha = 0.95 * (p.life / p.max_life)
             
         elif p.particle_type == ParticleType.HEALING:
             # Move toward target
@@ -500,6 +534,9 @@ class ParticleSystem1D:
                 elif p.particle_type == ParticleType.DEATH:
                     # Draw as fading explosion particle
                     self._draw_death_particle(p, color, size)
+                elif p.particle_type == ParticleType.PLAYER_TRAIL:
+                    # Draw as a soft comet-like streak
+                    self._draw_player_trail_particle(p, color)
                 else:
                     # Default circular particle
                     self._draw_circle_particle(p, color, size)
@@ -596,10 +633,37 @@ class ParticleSystem1D:
             pygame.draw.circle(hot_surf, (255, 255, 255, hot_alpha), (hot_size, hot_size), hot_size)
             self.screen.blit(hot_surf, (int(p.x) - hot_size, int(p.y) - hot_size))
 
+    def _draw_player_trail_particle(self, p: Particle, color: tuple) -> None:
+        """Draw a player trail particle with a short directional tail."""
+        size = int(max(1, p.size))
+        length = int(max(3, size * 3))
+        vx = p.vx
+        vy = p.vy
+        speed = math.hypot(vx, vy)
+        if speed < 0.001:
+            tail_dx = -length
+            tail_dy = 0
+        else:
+            tail_dx = int(-(vx / speed) * length)
+            tail_dy = int(-(vy / speed) * length)
+        
+        # Tail
+        tail_surf = pygame.Surface((length * 2 + 6, length * 2 + 6), pygame.SRCALPHA)
+        origin = (length + 3, length + 3)
+        tail_end = (origin[0] + tail_dx, origin[1] + tail_dy)
+        tail_color = (*color[:3], int(color[3] * 0.6))
+        pygame.draw.line(tail_surf, tail_color, origin, tail_end, max(1, size))
+        self.screen.blit(tail_surf, (int(p.x) - origin[0], int(p.y) - origin[1]))
+        
+        # Core
+        self._draw_circle_particle(p, color, size)
+
 
 def get_particle_type_for_entity(entity: "Entity") -> ParticleType:
     """Determine the particle type for an entity based on its tags."""
-    if entity.has_tag("the_first_point"):
+    if entity.has_tag("player"):
+        return ParticleType.PLAYER_TRAIL
+    elif entity.has_tag("the_first_point"):
         return ParticleType.FIRST_POINT
     elif entity.has_tag("point_spirit"):
         return ParticleType.POINT_SPIRIT

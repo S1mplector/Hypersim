@@ -1,21 +1,29 @@
 {
-  "current_dimension": "1d",
+  "current_dimension": "3d",
   "unlocked_dimensions": [
-    "1d"
+    "1d",
+    "2d",
+    "3d"
   ],
   "completed_nodes": [],
-  "xp": 29,
+  "xp": 6,
   "profile_name": "default",
   "active_node_id": null,
   "mission_progress": {},
   "unlocked_abilities": [
-    "ping_neighbors"
+    "slice_plane",
+    "ping_neighbors",
+    "sketch_path",
+    "fold_line",
+    "carry_line"
   ],
   "intro_impulse": "",
-  "terminus_seen": true,
+  "terminus_seen": false,
   "shift_tutorial_done": true,
   "outsider_cutscene_played": false,
   "shown_dimension_vignettes": [
+    "2d",
+    "3d",
     "1d"
   ],
   "evolution_form": 0,

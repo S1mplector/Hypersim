@@ -181,6 +181,8 @@ class GameLoop:
         # === CINEMATIC SYSTEM ===
         self.first_point_cinematic = FirstPointCinematic(self.screen)
         self._chapter_1_cinematic_played = False
+        self._line_world_beats_seen: set[str] = set()
+        self._line_trial_state: str = "inactive"  # inactive -> to_midpoint -> return_origin -> complete
         
         # Input handler reference for launcher integration
         self._input = self.input_handler
@@ -334,6 +336,9 @@ class GameLoop:
         if dim_id == "1d":
             self._maybe_trigger_shift_tutorial()
             self._maybe_trigger_terminus_cutscene()
+        elif self._line_trial_state != "complete":
+            # Trial only runs in 1D; cancel if player leaves early.
+            self._line_trial_state = "inactive"
         
         # Set evolution state for 4D renderer
         if dim_id == "4d":
@@ -595,7 +600,10 @@ class GameLoop:
     
     def _register_first_point_choices(self) -> None:
         """Register callbacks for First Point dialogue choices."""
-        from hypersim.game.story.cinematics import get_first_point_interaction_dialogue
+        from hypersim.game.story.cinematics import (
+            FIRST_POINT_INTERACTION_DIALOGUES,
+            get_first_point_interaction_dialogue,
+        )
         from hypersim.game.ui.textbox import DialogueSequence, DialogueLine, TextBoxStyle
         
         def create_choice_handler(choice_key: str):
@@ -628,10 +636,67 @@ class GameLoop:
                     self.dialogue.start_sequence(f"first_point_{choice_key}")
             return handler
         
-        # Register each choice handler
-        self.dialogue.register_event("line_info", create_choice_handler("line_info"))
-        self.dialogue.register_event("identity", create_choice_handler("identity"))
-        self.dialogue.register_event("farewell", create_choice_handler("farewell"))
+        # Register handlers for all defined First Point dialogue branches.
+        for key in FIRST_POINT_INTERACTION_DIALOGUES.keys():
+            self.dialogue.register_event(key, create_choice_handler(key))
+        
+        # Special branch that starts a gameplay challenge.
+        self.dialogue.register_event("start_line_trial", self._start_line_trial)
+    
+    def _start_line_trial(self) -> None:
+        """Start the First Point's optional movement trial in 1D."""
+        self.dialogue.stop()
+        
+        if self.session.active_dimension.id != "1d":
+            self.overlays.notify("The trial can only be taken on the Line.", duration=2.2, color=(200, 170, 130))
+            return
+        
+        if self._line_trial_state == "complete":
+            self.overlays.notify("Line Trial already completed.", duration=2.2, color=(120, 210, 170))
+            return
+        
+        if self._line_trial_state in ("to_midpoint", "return_origin"):
+            self.overlays.notify("Line Trial in progress.", duration=2.2, color=(210, 190, 120))
+            return
+        
+        self._line_trial_state = "to_midpoint"
+        self.overlays.notify("Line Trial: Reach Midpoint Station, then return to the Origin.", duration=4.0, color=(210, 190, 120))
+
+    def _update_1d_world_beats(self) -> None:
+        """Add short pacing beats to make early 1D traversal feel more alive."""
+        if self.session.active_dimension.id != "1d":
+            return
+        
+        player = self.world.get("player")
+        if not player:
+            return
+        transform = player.get(Transform)
+        if not transform:
+            return
+        
+        x = float(transform.position[0])
+        beats = [
+            ("line_departure", x >= 2.0, "The Line hums. Every step draws you farther from origin."),
+            ("line_forward", x >= 10.0, "Forward Path: doctrine ahead, patrols nearby."),
+            ("line_void", x <= -12.0, "Backward Void: echoes answer questions no sentinel asks."),
+            ("line_midpoint", x >= 21.0, "Midpoint Station: temporary peace between ideologies."),
+            ("line_endpoint", x >= 31.0, "Endpoint ahead. Reality feels thin here."),
+        ]
+        
+        for beat_id, condition, message in beats:
+            if condition and beat_id not in self._line_world_beats_seen:
+                self._line_world_beats_seen.add(beat_id)
+                self.overlays.notify(message, duration=2.6, color=(170, 185, 215))
+        
+        # Optional First Point trial progression.
+        if self._line_trial_state == "to_midpoint" and x >= 22.0:
+            self._line_trial_state = "return_origin"
+            self.overlays.notify("Trial step complete. Return to the Origin Point.", duration=3.0, color=(220, 195, 120))
+        elif self._line_trial_state == "return_origin" and x <= 1.5:
+            self._line_trial_state = "complete"
+            self.session.progression.xp += 10
+            discover_lore("monodia_sparks")
+            self.overlays.notify("Line Trial complete. +10 XP", duration=3.0, color=(130, 220, 170))
     
     def _spawn_default_level(self, dimension_id: str) -> None:
         """Spawn default entities for a dimension."""
@@ -1093,6 +1158,7 @@ class GameLoop:
             elif not self.paused and not dialogue_active:
                 # Update systems
                 self.world.update(dt)
+                self._update_1d_world_beats()
                 
                 # Process game events for session/objectives
                 for event in self.world.drain_events():
@@ -1313,7 +1379,7 @@ class GameLoop:
         self._set_entity_encounter_cooldown(entity, 6.0)
         
         if self._can_talk_pacify(enemy_id):
-            entity.remove_tag("encounter_trigger")
+            entity.untag("encounter_trigger")
             entity.tag("friendly")
             renderable = entity.get(Renderable)
             if renderable:
@@ -1467,7 +1533,7 @@ class GameLoop:
                 self.world.despawn(entity.id)
             elif result == CombatResult.SPARE:
                 # Spared enemies become friendly (remove encounter trigger)
-                entity.remove_tag("encounter_trigger")
+                entity.untag("encounter_trigger")
                 entity.tag("friendly")
                 self._set_entity_encounter_cooldown(entity, 10.0)
                 # Change color to indicate friendliness

@@ -187,7 +187,7 @@ CHAPTER_DIALOGUES: Dict[str, List[Dict]] = {
         {"speaker": "", "text": "No... not darkness. There is no light to contrast it."},
         {"speaker": "", "text": "There is simply... nothing."},
         {"speaker": "", "text": "And yet, within this nothing, you exist."},
-        {"speaker": "", "text": "A single point of awareness. Dimensionless. Timeless."},
+        {"speaker": "", "text": "A single point of awareness."},
         {"speaker": "???", "text": "...ah."},
         {"speaker": "???", "text": "Another spark."},
         {"speaker": "???", "text": "Most fade before they even realize they exist."},

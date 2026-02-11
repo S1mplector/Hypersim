@@ -5,7 +5,7 @@ dimensional perception to counter different attack types. This is the core
 defensive mechanic of the dimensional combat system.
 
 Key differences from Soul Modes:
-1. Player CHOOSES when to shift (strategic, not forced)
+1. Player CHOOSES when to shift 
 2. Each perception has energy cost and trade-offs
 3. Perceptions counter specific attack TYPES, not just movement changes
 4. Building resonance with a dimension unlocks stronger perception abilities

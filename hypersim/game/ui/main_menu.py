@@ -47,17 +47,17 @@ class MainMenu:
         # Menu items per state
         self._menus: Dict[MenuState, List[MenuItem]] = {
             MenuState.MAIN: [
-                MenuItem("new_game", "New Adventure", action=self._new_game),
-                MenuItem("load_save", "Continue", action=self._load_save),
-                MenuItem("quickplay", "Quickplay", action=self._quickplay),
-                MenuItem("settings", "Settings", submenu="settings"),
-                MenuItem("credits", "Credits", submenu="credits"),
+                MenuItem("new_game", "Start Learning Path", action=self._new_game),
+                MenuItem("load_save", "Continue Lesson Track", action=self._load_save),
+                MenuItem("quickplay", "Open Geometry Sandbox", action=self._quickplay),
+                MenuItem("settings", "Learning Settings", submenu="settings"),
+                MenuItem("credits", "Dimension Guide", submenu="credits"),
                 MenuItem("quit", "Quit", action=self._quit),
             ],
             MenuState.SETTINGS: [
-                MenuItem("audio", "Audio Settings", action=self._audio_settings),
+                MenuItem("audio", "Audio & Voiceover", action=self._audio_settings),
                 MenuItem("controls", "Controls", action=self._control_settings),
-                MenuItem("graphics", "Graphics", action=self._graphics_settings),
+                MenuItem("graphics", "Visual Clarity", action=self._graphics_settings),
                 MenuItem("back", "Back", submenu="main"),
             ],
             MenuState.CREDITS: [
@@ -386,9 +386,9 @@ class MainMenu:
         title_color = tuple(int(c * pulse) for c in self.title_color)
         
         # Main title
-        title = self._font_title.render("HYPERSIM", True, title_color)
+        title = self._font_title.render("TESSERA", True, title_color)
         title_rect = title.get_rect(center=(self.width // 2, self.height // 3))
-        shadow = self._font_title.render("HYPERSIM", True, (20, 30, 45))
+        shadow = self._font_title.render("TESSERA", True, (20, 30, 45))
         shadow_rect = shadow.get_rect(center=(self.width // 2 + 2, self.height // 3 + 2))
         self.screen.blit(shadow, shadow_rect)
         self.screen.blit(title, title_rect)
@@ -401,14 +401,18 @@ class MainMenu:
         )
         
         # Subtitle
-        subtitle = self._font_subtitle.render("Cross-Dimensional Adventure", True, (150, 160, 190))
+        subtitle = self._font_subtitle.render("Interactive Geometry Learning Software", True, (150, 160, 190))
         subtitle_rect = subtitle.get_rect(center=(self.width // 2, self.height // 3 + 68))
         self.screen.blit(subtitle, subtitle_rect)
+
+        detail = self._font_small.render("Learn what changes when space gains a new axis.", True, (125, 145, 175))
+        detail_rect = detail.get_rect(center=(self.width // 2, self.height // 3 + 104))
+        self.screen.blit(detail, detail_rect)
         
         # Press any key
         blink = int(self.animation_time * 2) % 2 == 0
         if blink:
-            prompt = self._font_small.render("Press any key to continue", True, (130, 140, 160))
+            prompt = self._font_small.render("Press any key to enter the learning hub", True, (130, 140, 160))
             prompt_rect = prompt.get_rect(center=(self.width // 2, self.height * 2 // 3))
             self.screen.blit(prompt, prompt_rect)
         
@@ -420,7 +424,7 @@ class MainMenu:
         """Draw menu items."""
         # Title
         state_titles = {
-            MenuState.MAIN: "HYPERSIM",
+            MenuState.MAIN: "TESSERA",
             MenuState.SETTINGS: "SETTINGS",
         }
         
@@ -428,6 +432,16 @@ class MainMenu:
         title = self._font_title.render(title_text, True, self.title_color)
         title_rect = title.get_rect(center=(self.width // 2, 80))
         self.screen.blit(title, title_rect)
+        
+        subtitle_map = {
+            MenuState.MAIN: "Learn how geometry changes from 1D to 4D",
+            MenuState.SETTINGS: "Tune the experience for clearer learning",
+        }
+        subtitle_text = subtitle_map.get(self.state)
+        if subtitle_text:
+            subtitle = self._font_small.render(subtitle_text, True, (130, 150, 190))
+            subtitle_rect = subtitle.get_rect(center=(self.width // 2, 122))
+            self.screen.blit(subtitle, subtitle_rect)
         
         # Menu items
         menu_items, rects = self._menu_layout()
@@ -492,6 +506,11 @@ class MainMenu:
         hint = self._font_hint.render(hint_text, True, (90, 100, 120))
         hint_rect = hint.get_rect(center=(self.width // 2, self.height - 36))
         self.screen.blit(hint, hint_rect)
+
+        # Learning context card for currently selected action.
+        selected_item = menu_items[self.selected_index] if 0 <= self.selected_index < len(menu_items) else None
+        if selected_item:
+            self._draw_learning_context_card(selected_item)
         
         # Breadcrumb
         if self.state != MenuState.MAIN:
@@ -500,23 +519,23 @@ class MainMenu:
     
     def _draw_credits(self) -> None:
         """Draw credits screen."""
-        title = self._font_title.render("CREDITS", True, self.title_color)
+        title = self._font_title.render("DIMENSION GUIDE", True, self.title_color)
         title_rect = title.get_rect(center=(self.width // 2, 80))
         self.screen.blit(title, title_rect)
         
         credits_text = [
-            "HyperSim - Cross-Dimensional Adventure",
+            "Tessera - Dimensional Learning Notes",
             "",
-            "A game about exploring dimensions",
-            "from 1D to 4D and beyond",
+            "1D -> 2D: movement gains turning; area appears.",
+            "2D -> 3D: surfaces can fold into enclosed volume.",
+            "3D -> 4D: volume extends through W; new adjacencies emerge.",
             "",
-            "Built with Python and Pygame",
+            "In each new dimension you gain:",
+            "- one new axis of motion",
+            "- one new class of boundaries",
+            "- new projections and blind spots",
             "",
-            "4D Mathematics and Visualization",
-            "inspired by 'Flatland' and",
-            "the study of higher dimensions",
-            "",
-            "Thank you for playing!",
+            "Use the Geometry Sandbox to test these ideas directly.",
         ]
         
         y = 180
@@ -575,6 +594,67 @@ class MainMenu:
                         self.selected_index = idx
                     return True
         return False
+
+    def _draw_learning_context_card(self, selected_item: MenuItem) -> None:
+        """Draw short educational context for the selected main action."""
+        # Only show on primary menus.
+        if self.state not in (MenuState.MAIN, MenuState.SETTINGS):
+            return
+        
+        card_w = min(620, int(self.width * 0.72))
+        card_h = 118
+        card = pygame.Rect(0, 0, card_w, card_h)
+        card.centerx = self.width // 2
+        card.top = 130
+        
+        card_surf = pygame.Surface(card.size, pygame.SRCALPHA)
+        card_surf.fill((14, 20, 34, 210))
+        pygame.draw.rect(card_surf, (68, 96, 148, 140), card_surf.get_rect(), 2, border_radius=12)
+        self.screen.blit(card_surf, card.topleft)
+        
+        copy = {
+            "new_game": [
+                "Start at 1D and unlock each extra axis through guided encounters.",
+                "Goal: feel how rules change when geometry gains a dimension.",
+            ],
+            "load_save": [
+                "Resume your progress through dimensional milestones.",
+                "Revisit previous dimensions to compare constraints and freedom.",
+            ],
+            "quickplay": [
+                "Open a free sandbox for geometric experiments and projection tests.",
+                "Great for testing how 4D shapes appear from lower-dimensional views.",
+            ],
+            "settings": [
+                "Adjust readability, pace, and feedback for teaching-focused play.",
+                "Tune visuals/audio to keep geometric ideas easy to track.",
+            ],
+            "audio": [
+                "Control voice and feedback cues for concept-heavy moments.",
+                "Use lower music and stronger SFX for clearer instructional pacing.",
+            ],
+            "controls": [
+                "Configure movement and camera to reduce cognitive load.",
+                "Consistent controls help compare behaviors across dimensions.",
+            ],
+            "graphics": [
+                "Optimize contrast and line clarity for projections.",
+                "Clear silhouettes make topology and adjacency easier to read.",
+            ],
+        }
+        lines = copy.get(selected_item.id, [
+            "Explore dimensional geometry through interactive simulation.",
+            "Every session should teach one new structural insight.",
+        ])
+        
+        header = self._font_small.render("What this teaches", True, (142, 176, 230))
+        self.screen.blit(header, (card.x + 16, card.y + 12))
+        
+        y = card.y + 38
+        for line in lines:
+            text = self._font_small.render(line, True, (185, 195, 220))
+            self.screen.blit(text, (card.x + 16, y))
+            y += 24
     
     # Action callbacks
     def _new_game(self) -> None:
@@ -607,7 +687,7 @@ def run_with_menu() -> None:
     """Run the game with main menu."""
     pygame.init()
     screen = pygame.display.set_mode((1024, 768))
-    pygame.display.set_caption("HyperSim")
+    pygame.display.set_caption("Tessera - Dimensional Learning Hub")
     clock = pygame.time.Clock()
     
     menu = MainMenu(screen)
@@ -662,7 +742,7 @@ def run_with_menu() -> None:
         session = GameSession(dimensions=track, progression=progression)
         
         from hypersim.game.loop import GameLoop
-        game = GameLoop(session, title="HyperSim - Cross-Dimensional Adventure")
+        game = GameLoop(session, title="Tessera - Interactive Dimension Lessons")
         game.run()
     
     pygame.quit()
