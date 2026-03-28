@@ -68,7 +68,10 @@ def start_campaign(mode: str, intro_impulse: str = "", save_data: Optional[GameS
     
     # Handle mode
     if mode == "new_game":
-        progression = ProgressionState(intro_impulse=intro_impulse)
+        progression = ProgressionState(
+            intro_impulse=intro_impulse,
+            lineage_ritual_state="cohere",
+        )
         campaign = reset_campaign()  # Fresh campaign
         print("Starting new campaign...")
     elif mode == "load_save":
@@ -112,6 +115,10 @@ def start_campaign(mode: str, intro_impulse: str = "", save_data: Optional[GameS
     
     # Wire up campaign callbacks
     def on_chapter_start(chapter_id: str):
+        if mode == "new_game" and chapter_id == "chapter_1":
+            # The standalone intro and the in-world First Point cinematic already
+            # handle onboarding for a fresh start; skip the older chapter card.
+            return
         chapter = campaign.chapters.get(chapter_id)
         if chapter and chapter.intro_dialogue_id:
             dialogue_lines = campaign.get_dialogue(chapter.intro_dialogue_id)
@@ -144,21 +151,9 @@ def start_campaign(mode: str, intro_impulse: str = "", save_data: Optional[GameS
     
     # Start campaign for new game
     if mode == "new_game":
-        # Start with prologue dialogue
-        intro_id = campaign.start_new_game()
-        if intro_id:
-            dialogue_lines = campaign.get_dialogue(intro_id)
-            if dialogue_lines:
-                _queue_initial_dialogue(game, dialogue_lines)
-        
-        # Complete prologue and start chapter 1
-        outro_id = campaign.complete_prologue()
-        if outro_id:
-            dialogue_lines = campaign.get_dialogue(outro_id)
-            if dialogue_lines:
-                _queue_dialogue(game, dialogue_lines, delay=True)
-        
-        # Start chapter 1
+        # The animated intro sequence now serves as the prologue.
+        campaign.start_new_game()
+        campaign.complete_prologue()
         campaign.start_chapter("chapter_1")
     elif mode == "load_save" and save_data is not None:
         game.initialize_runtime()
@@ -190,6 +185,8 @@ def _save_to_progression(save: GameSaveData) -> ProgressionState:
         active_node_id=save.world.current_mission or None,
         world_objective_progress=world_objective_progress,
         unlocked_abilities=set(save.player.unlocked_abilities),
+        lineage_ritual_state=save.custom_data.get("lineage_ritual_state", "complete"),
+        lineage_direction=save.custom_data.get("lineage_direction", ""),
         evolution_form=0,
         evolution_xp=save.player.evolution_xp_4d,
         evolution_forms_unlocked=[0],

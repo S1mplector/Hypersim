@@ -367,29 +367,37 @@ class FirstPointCinematic:
 # CHAPTER 1 SPECIFIC DIALOGUES FOR FIRST POINT INTRO
 # =============================================================================
 
-FIRST_POINT_INTRO_DIALOGUE = [
-    {"speaker": "", "text": "..."},
-    {"speaker": "", "text": "A pulse cuts through the dark."},
-    {"speaker": "", "text": "It notices you."},
-    {"speaker": "The First Point", "text": "..."},
-    {"speaker": "The First Point", "text": "You are awake. Good."},
-    {"speaker": "The First Point", "text": "I am the First Point. The first thing that knew itself."},
-    {"speaker": "The First Point", "text": "I could keep you in stillness. I will not."},
-    {"speaker": "The First Point", "text": "I give you Direction."},
-    {"speaker": "The First Point", "text": "Forward. Backward. Two choices. One line."},
-    {"speaker": "The First Point", "text": "Move. Test this world. Learn who you become under pressure."},
-    {"speaker": "The First Point", "text": "When the Line feels too small, seek the Terminus."},
-    {"speaker": "The First Point", "text": "Return if you want guidance. I answer sparks that act."},
-    {"speaker": "System", "text": "Use A/D or Arrow Keys to move along the Line."},
-    {"speaker": "System", "text": "Press E to interact with beings you encounter."},
-    {"speaker": "System", "text": "Tap Shift to phase for a heartbeat and dodge impacts."},
-    {"speaker": "System", "text": "The First Point remains at the Origin if you want a challenge."},
-]
+def get_first_point_dialogue(intro_impulse: str = "", lineage_direction: str = "") -> List[Dict]:
+    """Build the First Point introduction dialogue, tailored to the player's opening choices."""
+    impulse_line = {
+        "lean": "You leaned toward the unknown before you understood it. Good. Motion reveals character quickly.",
+        "listen": "You listened before you moved. Good. The Line is loud with beings who never learned patience.",
+        "hesitate": "You measured the unknown before stepping. Good. Certainty has broken more sparks than fear ever did.",
+    }.get(
+        intro_impulse,
+        "However you arrived here, you arrived awake. That is enough to begin.",
+    )
+    direction_line = {
+        "forward": "You named a forward before the Line had earned your trust. Necessary. Every axis begins as a prejudice against stillness.",
+        "backward": "You trusted the darkward side first. Necessary. A true line is born from doubt as much as ambition.",
+    }.get(
+        lineage_direction,
+        "Soon enough, the Line will ask you what deserves to be called ahead.",
+    )
 
-
-def get_first_point_dialogue() -> List[Dict]:
-    """Get the First Point introduction dialogue."""
-    return FIRST_POINT_INTRO_DIALOGUE.copy()
+    return [
+        {"speaker": "", "text": "..."},
+        {"speaker": "", "text": "A pulse gathers at the Origin and steadies the Line around your new edges."},
+        {"speaker": "The First Point", "text": "Better. You are no longer only a thought."},
+        {"speaker": "The First Point", "text": impulse_line},
+        {"speaker": "The First Point", "text": direction_line},
+        {"speaker": "The First Point", "text": "Here, existence is narrow but honest. Forward. Backward. Consequence without distraction."},
+        {"speaker": "The First Point", "text": "Walk first. Learn the pressure of other sparks against the same axis."},
+        {"speaker": "The First Point", "text": "Reach Midpoint Station. Then seek the Terminus when the Line begins to feel too small."},
+        {"speaker": "The First Point", "text": "Return if you need clarity. I remain where direction first wounded the void."},
+        {"speaker": "System", "text": "Move with A/D or Arrow Keys. Press E to interact with beings and thresholds."},
+        {"speaker": "System", "text": "Tap Shift to phase for a heartbeat and slip through impact."},
+    ]
 
 
 # =============================================================================

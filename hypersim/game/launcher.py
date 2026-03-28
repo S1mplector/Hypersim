@@ -103,6 +103,8 @@ class TesseraLauncher:
         """Start a new campaign game."""
         self.current_save = self.save_manager.create_new_game()
         self.current_save.metadata.save_name = "New Campaign"
+        self.current_save.custom_data["lineage_ritual_state"] = "cohere"
+        self.current_save.custom_data["lineage_direction"] = ""
         self._launch_game()
     
     def _start_quick_play(self) -> None:
@@ -113,6 +115,7 @@ class TesseraLauncher:
         self.current_save.world.unlocked_dimensions = ["1d", "2d"]
         self.current_save.world.current_world = "tutorial_2d"
         self.current_save.world.unlocked_worlds = ["tutorial_1d", "tutorial_2d"]
+        self.current_save.custom_data["lineage_ritual_state"] = "complete"
         self._launch_game()
     
     def _show_multiplayer_menu(self) -> None:
@@ -193,6 +196,8 @@ class TesseraLauncher:
             world_id: {"objective_progress": dict(snapshot)}
             for world_id, snapshot in progression.world_objective_progress.items()
         }
+        self.current_save.custom_data["lineage_ritual_state"] = progression.lineage_ritual_state
+        self.current_save.custom_data["lineage_direction"] = progression.lineage_direction
     
     def _launch_game(self) -> None:
         """Launch the game with current save data."""
@@ -241,6 +246,8 @@ class TesseraLauncher:
             active_node_id=save.world.current_mission or None,
             world_objective_progress=world_objective_progress,
             unlocked_abilities=set(save.player.unlocked_abilities),
+            lineage_ritual_state=save.custom_data.get("lineage_ritual_state", "complete"),
+            lineage_direction=save.custom_data.get("lineage_direction", ""),
             evolution_form=0,  # Will be set from dimension-specific evolution
             evolution_xp=save.player.evolution_xp_4d,
             evolution_forms_unlocked=[0],  # Default

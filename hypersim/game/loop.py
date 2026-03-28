@@ -205,6 +205,12 @@ class GameLoop:
         self._chapter_1_cinematic_played = False
         self._line_world_beats_seen: set[str] = set()
         self._line_trial_state: str = "inactive"  # inactive -> to_midpoint -> return_origin -> complete
+        self._line_birth_state: str = "inactive"  # inactive -> cohere -> direction -> complete
+        self._line_birth_hold_active = False
+        self._line_birth_charge = 0.0
+        self._line_birth_time = 0.0
+        self._line_birth_flash = 0.0
+        self._line_birth_intro_shown = False
         
         # Input handler reference for launcher integration
         self._input = self.input_handler
@@ -532,17 +538,19 @@ class GameLoop:
         
         # Update input system
         self.input_system.set_dimension(dim_id)
+        self._sync_line_birth_state()
         
         # Trigger dimension intro dialogue (first time only)
         self._trigger_dimension_intro(dim_id)
 
         # 1D-specific onboarding
-        if dim_id == "1d":
-            self._maybe_trigger_shift_tutorial()
-            self._maybe_trigger_terminus_cutscene()
-        elif self._line_trial_state != "complete":
+        if dim_id != "1d" and self._line_trial_state != "complete":
             # Trial only runs in 1D; cancel if player leaves early.
             self._line_trial_state = "inactive"
+        if dim_id != "1d":
+            self._line_birth_state = "inactive"
+            self._line_birth_hold_active = False
+            self._line_birth_intro_shown = False
         
         # Set evolution state for 4D renderer
         if dim_id == "4d":
@@ -565,8 +573,10 @@ class GameLoop:
         
         # Special cinematic for Chapter 1 (1D) - First Point introduction
         if dim_id == "1d" and not self._chapter_1_cinematic_played:
-            self._chapter_1_cinematic_played = True
-            self._start_first_point_cinematic()
+            if self.current_world_id == "tutorial_1d" and self.session.progression.lineage_ritual_state != "complete":
+                self._start_line_birth_ritual()
+            else:
+                self._start_first_point_cinematic()
             return
         
         # Map dimensions to dialogue sequences
@@ -631,7 +641,7 @@ class GameLoop:
     def _maybe_trigger_shift_tutorial(self) -> None:
         """Fire the 1D shift tutorial once."""
         from hypersim.game.ui.textbox import TextBoxStyle
-        if self.session.progression.shift_tutorial_done:
+        if self.session.progression.shift_tutorial_done or self.dialogue.is_active or self.first_point_cinematic.is_active:
             return
         self.session.progression.shift_tutorial_done = True
         lines = [
@@ -645,7 +655,7 @@ class GameLoop:
     def _maybe_trigger_terminus_cutscene(self) -> None:
         """Show the 1D Terminus cutscene with ascend/stay choice."""
         from hypersim.game.ui.textbox import DialogueSequence, DialogueLine, TextBoxStyle
-        if self.session.progression.terminus_seen or self.dialogue.is_active:
+        if self.session.progression.terminus_seen or self.dialogue.is_active or self.first_point_cinematic.is_active:
             return
         self.session.progression.terminus_seen = True
         # Unlock related lore
@@ -721,13 +731,349 @@ class GameLoop:
         )
         self.dialogue.register_sequence(seq)
         self.dialogue.start_sequence(seq_id)
+
+    def _is_line_birth_active(self) -> bool:
+        """Return whether the emergence ritual is blocking normal gameplay."""
+        return self._line_birth_state in {"cohere", "direction"}
+
+    def _set_player_control_enabled(self, enabled: bool) -> None:
+        """Enable or disable direct player control."""
+        player = self.world.find_player()
+        if not player:
+            return
+
+        controller = player.get(Controller)
+        if controller:
+            controller.enabled = enabled
+            if not enabled:
+                controller.clear_input()
+
+        velocity = player.get(Velocity)
+        if velocity is not None and not enabled:
+            velocity.linear[:] = 0.0
+
+    def _sync_line_birth_state(self) -> None:
+        """Apply persisted ritual state to the freshly loaded 1D runtime."""
+        if self.session.active_dimension.id != "1d" or self.current_world_id != "tutorial_1d":
+            self._line_birth_state = "inactive"
+            self._line_birth_hold_active = False
+            self._line_birth_intro_shown = False
+            return
+
+        ritual_state = (self.session.progression.lineage_ritual_state or "complete").lower()
+        if ritual_state not in {"cohere", "direction", "complete"}:
+            ritual_state = "complete"
+
+        self._line_birth_state = ritual_state
+        self._line_birth_hold_active = False
+        self._line_birth_charge = 1.0 if ritual_state != "cohere" else 0.0
+        self._line_birth_time = 0.0
+        self._line_birth_flash = 0.0
+        self._line_birth_intro_shown = False
+
+        player = self.world.find_player()
+        if player:
+            transform = player.get(Transform)
+            if transform and ritual_state != "complete":
+                transform.position[0] = 0.0
+            velocity = player.get(Velocity)
+            if velocity is not None and ritual_state != "complete":
+                velocity.linear[:] = 0.0
+
+        self._set_player_control_enabled(ritual_state == "complete")
+
+    def _start_line_birth_ritual(self) -> None:
+        """Begin the playable rite that lets the player become a point."""
+        self._sync_line_birth_state()
+        if not self._is_line_birth_active():
+            return
+
+        self._line_birth_intro_shown = True
+        self._line_birth_time = 0.0
+        self._set_player_control_enabled(False)
+
+        if self._line_birth_state == "cohere":
+            lines = [
+                {"speaker": "The Voice", "text": "Not yet."},
+                {"speaker": "The Voice", "text": "The Line does not receive a thing that has not agreed to exist."},
+                {"speaker": "System", "text": "Hold SPACE or ENTER to gather yourself into a point."},
+            ]
+            self._play_sequence_inline("line_birth_cohere", lines, pause=True)
+        elif self._line_birth_state == "direction":
+            lines = [
+                {"speaker": "The Voice", "text": "Good. You can be found now."},
+                {"speaker": "The Voice", "text": "One choice remains: decide which side of nothing will become ahead."},
+                {"speaker": "System", "text": "Press A/LEFT for backward or D/RIGHT for forward."},
+            ]
+            self._play_sequence_inline("line_birth_direction", lines, pause=True)
+
+    def _advance_line_birth_to_direction(self) -> None:
+        """Promote the ritual from bare existence to choosing a first direction."""
+        self._line_birth_state = "direction"
+        self._line_birth_hold_active = False
+        self._line_birth_charge = 1.0
+        self._line_birth_flash = 1.0
+        self._line_birth_time = 0.0
+        self.session.progression.lineage_ritual_state = "direction"
+        self.overlays.notify("Existence gained.", duration=2.4, color=(165, 220, 255))
+        self._start_line_birth_ritual()
+
+    def _complete_line_birth_ritual(self, direction: str) -> None:
+        """Finish the rite and hand off into the First Point cinematic."""
+        if direction not in {"forward", "backward"}:
+            return
+
+        player = self.world.find_player()
+        if player:
+            transform = player.get(Transform)
+            if transform:
+                transform.position[0] = 0.8 if direction == "forward" else -0.8
+            velocity = player.get(Velocity)
+            if velocity is not None:
+                velocity.linear[:] = 0.0
+
+        self.session.progression.lineage_direction = direction
+        self.session.progression.lineage_ritual_state = "complete"
+        self._line_birth_state = "complete"
+        self._line_birth_hold_active = False
+        self._line_birth_flash = 1.0
+        self._line_birth_time = 0.0
+        self._set_player_control_enabled(True)
+
+        label = "Forward" if direction == "forward" else "Backward"
+        color = (225, 190, 120) if direction == "forward" else (170, 185, 245)
+        self.overlays.notify(f"Direction claimed: {label}", duration=2.8, color=color)
+
+        if not self._chapter_1_cinematic_played:
+            self._start_first_point_cinematic()
+
+    def _handle_line_birth_input(self, event: pygame.event.Event) -> bool:
+        """Consume input for the line-birth ritual."""
+        if not self._is_line_birth_active():
+            return False
+
+        if self._line_birth_state == "cohere":
+            if event.type == pygame.KEYDOWN and event.key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_KP_ENTER):
+                self._line_birth_hold_active = True
+                return True
+            if event.type == pygame.KEYUP and event.key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_KP_ENTER):
+                self._line_birth_hold_active = False
+                return True
+
+        if self._line_birth_state == "direction" and event.type == pygame.KEYDOWN:
+            if event.key in (pygame.K_a, pygame.K_LEFT):
+                self._complete_line_birth_ritual("backward")
+                return True
+            if event.key in (pygame.K_d, pygame.K_RIGHT):
+                self._complete_line_birth_ritual("forward")
+                return True
+
+        return False
+
+    def _update_line_birth_ritual(self, dt: float) -> None:
+        """Advance ritual animation and existence-gain progress."""
+        if not self._is_line_birth_active():
+            return
+
+        self._line_birth_time += dt
+        self._line_birth_flash = max(0.0, self._line_birth_flash - dt * 1.5)
+
+        if self.dialogue.is_active:
+            return
+
+        if self._line_birth_state == "cohere":
+            if self._line_birth_hold_active:
+                self._line_birth_charge = min(1.0, self._line_birth_charge + dt * 0.72)
+            else:
+                self._line_birth_charge = max(0.0, self._line_birth_charge - dt * 0.22)
+
+            if self._line_birth_charge >= 1.0:
+                self._advance_line_birth_to_direction()
+
+    def _draw_line_birth_ritual(self) -> None:
+        """Render the emergence ritual overlay on top of the 1D world."""
+        if self.session.active_dimension.id != "1d":
+            return
+
+        renderer = self._renderers.get("1d")
+        player = self.world.find_player()
+        player_x = 0.0
+        if player:
+            transform = player.get(Transform)
+            if transform:
+                player_x = float(transform.position[0])
+
+        if renderer and hasattr(renderer, "world_to_screen"):
+            player_screen_x = renderer.world_to_screen(player_x, 0.0)[0]
+            line_y = getattr(renderer, "line_y", self.height // 2)
+        else:
+            player_screen_x = self.width // 2
+            line_y = self.height // 2
+
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((4, 7, 18, 92))
+        self.screen.blit(overlay, (0, 0))
+
+        title_font = pygame.font.Font(None, 44)
+        subtitle_font = pygame.font.Font(None, 26)
+        body_font = pygame.font.Font(None, 30)
+        small_font = pygame.font.Font(None, 22)
+
+        title = title_font.render("Rite of Emergence", True, (234, 236, 244))
+        self.screen.blit(title, title.get_rect(center=(self.width // 2, 110)))
+
+        pulse = 0.5 + 0.5 * np.sin(self._line_birth_time * 2.4)
+        core_color = (170, 228, 255)
+        ring_color = (225, 235, 255)
+
+        for idx in range(10):
+            orbit = self._line_birth_time * (0.7 + idx * 0.08) + idx * 0.63
+            distance = 28 + idx * 7 - self._line_birth_charge * 14
+            mote_x = player_screen_x + np.cos(orbit) * distance
+            mote_y = line_y + np.sin(orbit) * (22 + idx * 3)
+            radius = 2 + (idx % 3)
+            fade = 0.78 - idx * 0.05
+            pygame.draw.circle(
+                self.screen,
+                tuple(int(channel * fade) for channel in core_color),
+                (int(mote_x), int(mote_y)),
+                radius,
+            )
+
+        base_radius = 24 + 8 * self._line_birth_charge + 3 * pulse
+        pygame.draw.circle(self.screen, (185, 225, 255), (int(player_screen_x), int(line_y)), int(base_radius))
+        pygame.draw.circle(self.screen, (245, 250, 255), (int(player_screen_x), int(line_y)), 8)
+
+        if self._line_birth_state == "cohere":
+            ring_rect = pygame.Rect(0, 0, 132, 132)
+            ring_rect.center = (player_screen_x, line_y)
+            pygame.draw.circle(self.screen, (42, 54, 90), (int(player_screen_x), int(line_y)), 66, 2)
+            pygame.draw.arc(
+                self.screen,
+                ring_color,
+                ring_rect,
+                -np.pi / 2,
+                -np.pi / 2 + 2 * np.pi * self._line_birth_charge,
+                5,
+            )
+
+            heading = subtitle_font.render("Gain Existence", True, (210, 220, 238))
+            body = body_font.render("Hold SPACE or ENTER until absence loses you.", True, (236, 238, 245))
+            meter_width = 280
+            meter_rect = pygame.Rect(0, 0, meter_width, 10)
+            meter_rect.center = (self.width // 2, line_y + 150)
+            pygame.draw.rect(self.screen, (28, 34, 52), meter_rect, border_radius=5)
+            fill_rect = meter_rect.copy()
+            fill_rect.width = int(meter_width * self._line_birth_charge)
+            pygame.draw.rect(self.screen, (172, 220, 255), fill_rect, border_radius=5)
+            hint = small_font.render("Steady pressure makes you real.", True, (150, 165, 192))
+
+            self.screen.blit(heading, heading.get_rect(center=(self.width // 2, line_y - 118)))
+            self.screen.blit(body, body.get_rect(center=(self.width // 2, line_y + 118)))
+            self.screen.blit(hint, hint.get_rect(center=(self.width // 2, line_y + 178)))
+        elif self._line_birth_state == "direction":
+            left_color = (150, 170, 245)
+            right_color = (232, 196, 132)
+            reach = 180 + 18 * pulse
+            pygame.draw.line(
+                self.screen,
+                left_color,
+                (int(player_screen_x - 22), int(line_y)),
+                (int(player_screen_x - reach), int(line_y)),
+                4,
+            )
+            pygame.draw.line(
+                self.screen,
+                right_color,
+                (int(player_screen_x + 22), int(line_y)),
+                (int(player_screen_x + reach), int(line_y)),
+                4,
+            )
+            pygame.draw.polygon(
+                self.screen,
+                left_color,
+                [
+                    (int(player_screen_x - reach), int(line_y)),
+                    (int(player_screen_x - reach + 22), int(line_y - 12)),
+                    (int(player_screen_x - reach + 22), int(line_y + 12)),
+                ],
+            )
+            pygame.draw.polygon(
+                self.screen,
+                right_color,
+                [
+                    (int(player_screen_x + reach), int(line_y)),
+                    (int(player_screen_x + reach - 22), int(line_y - 12)),
+                    (int(player_screen_x + reach - 22), int(line_y + 12)),
+                ],
+            )
+
+            heading = subtitle_font.render("Choose The First Direction", True, (210, 220, 238))
+            body = body_font.render("Press A/LEFT or D/RIGHT. Preference becomes geometry.", True, (236, 238, 245))
+            left_label = small_font.render("Backward", True, left_color)
+            right_label = small_font.render("Forward", True, right_color)
+            hint = small_font.render("The Line remembers your first answer.", True, (150, 165, 192))
+
+            self.screen.blit(heading, heading.get_rect(center=(self.width // 2, line_y - 118)))
+            self.screen.blit(body, body.get_rect(center=(self.width // 2, line_y + 118)))
+            self.screen.blit(left_label, left_label.get_rect(center=(player_screen_x - 180, line_y + 34)))
+            self.screen.blit(right_label, right_label.get_rect(center=(player_screen_x + 180, line_y + 34)))
+            self.screen.blit(hint, hint.get_rect(center=(self.width // 2, line_y + 176)))
+
+        if self._line_birth_flash > 0.0:
+            flash = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            flash.fill((215, 232, 255, int(86 * self._line_birth_flash)))
+            self.screen.blit(flash, (0, 0))
     
     def _start_first_point_cinematic(self) -> None:
         """Start the First Point cinematic for Chapter 1."""
+        from hypersim.game.story.cinematics import get_first_point_dialogue
+        from hypersim.game.ui.textbox import DialogueLine, DialogueSequence, TextBoxStyle
+
         def on_cinematic_complete():
             # Spawn the First Point as an interactable NPC after cinematic
             self._spawn_first_point_npc()
-        
+
+        self._chapter_1_cinematic_played = True
+        intro_lines = []
+        for item in get_first_point_dialogue(
+            self.session.progression.intro_impulse or "",
+            self.session.progression.lineage_direction or "",
+        ):
+            speaker = item.get("speaker", "")
+            if speaker == "System":
+                style = TextBoxStyle.TUTORIAL
+                voice_id = item.get("voice_id") or "default"
+                typing_speed = item.get("typing_speed", 30.0)
+            elif speaker == "The First Point":
+                style = TextBoxStyle.DIMENSION
+                voice_id = item.get("voice_id") or "first_point"
+                typing_speed = item.get("typing_speed", 24.0)
+            else:
+                style = TextBoxStyle.NARRATOR
+                voice_id = item.get("voice_id") or "narrator"
+                typing_speed = item.get("typing_speed", 28.0)
+
+            intro_lines.append(
+                DialogueLine(
+                    speaker=speaker,
+                    text=item.get("text", ""),
+                    style=style,
+                    voice_id=voice_id,
+                    duration=item.get("duration", 1.2 if item.get("text") == "..." else 0.0),
+                    typing_speed=typing_speed,
+                    choices=item.get("choices", []),
+                )
+            )
+
+        self.dialogue.register_sequence(
+            DialogueSequence(
+                id="chapter_1_first_point_intro",
+                lines=intro_lines,
+                pause_game=True,
+                can_skip=False,
+            )
+        )
         self.first_point_cinematic.on_cinematic_complete = on_cinematic_complete
         self.first_point_cinematic.start(self.dialogue)
     
@@ -890,6 +1236,11 @@ class GameLoop:
             return
         
         x = float(transform.position[0])
+        if not self.session.progression.shift_tutorial_done and abs(x) >= 1.2:
+            self._maybe_trigger_shift_tutorial()
+        if not self.session.progression.terminus_seen and x >= 40.0:
+            self._maybe_trigger_terminus_cutscene()
+
         beats = [
             ("line_departure", x >= 2.0, "The Line hums. Every step draws you farther from origin."),
             ("line_forward", x >= 10.0, "Forward Path: doctrine ahead, patrols nearby."),
@@ -1384,10 +1735,14 @@ class GameLoop:
 
         dialogue_active = self.dialogue.should_pause_game
         cinematic_active = self.first_point_cinematic.is_active
+        line_birth_active = self._is_line_birth_active()
         old_combat_active = self.combat and (self.combat.in_combat or self.combat.transitioning)
         dim_combat_active = self.dimensional_combat and (
             self.dimensional_combat.in_combat or self.dimensional_combat.transitioning
         )
+
+        if line_birth_active:
+            self._update_line_birth_ritual(dt)
 
         if cinematic_active:
             self.first_point_cinematic.update(dt)
@@ -1396,6 +1751,8 @@ class GameLoop:
             self.dimensional_combat.update(dt)
         elif old_combat_active:
             self.combat.update(dt)
+        elif line_birth_active:
+            pass
         elif not self.paused and not dialogue_active:
             self.world.update(dt)
             self._update_1d_world_beats()
@@ -1908,6 +2265,10 @@ class GameLoop:
             if dim in ("3d", "4d") and not self._mouse_captured and not self.dialogue.is_active:
                 self._set_mouse_capture(True)
 
+        if self._is_line_birth_active() and not self.dialogue.is_active:
+            if self._handle_line_birth_input(event):
+                return True
+
         self.input_handler.process_event(event)
         return False
 
@@ -1995,6 +2356,9 @@ class GameLoop:
         
         # Draw overlays (notifications, etc.)
         self.overlays.draw()
+
+        if self._is_line_birth_active() and dim_id == "1d":
+            self._draw_line_birth_ritual()
         
         # Draw dialogue (on top of everything except pause)
         self.dialogue.draw()
@@ -2024,6 +2388,9 @@ class GameLoop:
     
     def _draw_session_info(self) -> None:
         """Draw session/progression info."""
+        if self._is_line_birth_active():
+            return
+
         font = pygame.font.Font(None, 20)
         dim_id = self.session.active_dimension.id
         left_y = 36
