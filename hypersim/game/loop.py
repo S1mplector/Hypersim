@@ -1,6 +1,7 @@
 """Main game loop integrating ECS, rendering, and session management."""
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 import pygame
@@ -211,6 +212,18 @@ class GameLoop:
         self._line_birth_time = 0.0
         self._line_birth_flash = 0.0
         self._line_birth_intro_shown = False
+        self._line_birth_music_active = False
+        self._line_strain_axis = 0.0
+        self._line_strain_bend = 0.0
+        self._line_strain_flash = 0.0
+        self._line_strain_shake = 0.0
+        self._line_violation_meter = 0.0
+        self._line_guardian_active = False
+        self._line_guardian_time = 0.0
+        self._line_guardian_rotation = 0.0
+        self._line_guardian_flash = 0.0
+        self._line_guardian_reset_pending = False
+        self._line_guardian_music_active = False
         
         # Input handler reference for launcher integration
         self._input = self.input_handler
@@ -543,6 +556,9 @@ class GameLoop:
         # Trigger dimension intro dialogue (first time only)
         self._trigger_dimension_intro(dim_id)
 
+        if dim_id == "1d" and self._is_line_birth_active() and not self._line_birth_intro_shown and not self.first_point_cinematic.is_active:
+            self._start_line_birth_ritual()
+
         # 1D-specific onboarding
         if dim_id != "1d" and self._line_trial_state != "complete":
             # Trial only runs in 1D; cancel if player leaves early.
@@ -551,6 +567,15 @@ class GameLoop:
             self._line_birth_state = "inactive"
             self._line_birth_hold_active = False
             self._line_birth_intro_shown = False
+            self._line_strain_axis = 0.0
+            self._line_strain_bend = 0.0
+            self._line_strain_flash = 0.0
+            self._line_strain_shake = 0.0
+            self._line_violation_meter = 0.0
+            self._line_guardian_active = False
+            self._line_guardian_reset_pending = False
+            self._sync_line_birth_music()
+            self._stop_line_guardian_music()
         
         # Set evolution state for 4D renderer
         if dim_id == "4d":
@@ -735,6 +760,49 @@ class GameLoop:
     def _is_line_birth_active(self) -> bool:
         """Return whether the emergence ritual is blocking normal gameplay."""
         return self._line_birth_state in {"cohere", "direction"}
+
+    def _sync_line_birth_music(self) -> None:
+        """Keep the 0D birthing music aligned with the emergence ritual."""
+        should_play = (
+            self.session.active_dimension.id == "1d"
+            and self.current_world_id == "tutorial_1d"
+            and self._is_line_birth_active()
+        )
+        if should_play:
+            if not self._line_birth_music_active and self.audio.play_music("darkrumble0d.mp3"):
+                self._line_birth_music_active = True
+            return
+
+        if self._line_birth_music_active:
+            if pygame.mixer.get_init():
+                try:
+                    pygame.mixer.music.fadeout(900)
+                except pygame.error:
+                    self.audio.stop_music()
+            else:
+                self.audio.stop_music()
+            self._line_birth_music_active = False
+
+    def _start_line_guardian_music(self) -> None:
+        """Start the guardian confrontation track."""
+        if self._line_guardian_music_active:
+            return
+        if self.audio.play_music("guardianconfront.mp3"):
+            self._line_birth_music_active = False
+            self._line_guardian_music_active = True
+
+    def _stop_line_guardian_music(self) -> None:
+        """Stop the guardian confrontation track."""
+        if not self._line_guardian_music_active:
+            return
+        if pygame.mixer.get_init():
+            try:
+                pygame.mixer.music.fadeout(1200)
+            except pygame.error:
+                self.audio.stop_music()
+        else:
+            self.audio.stop_music()
+        self._line_guardian_music_active = False
 
     def _set_player_control_enabled(self, enabled: bool) -> None:
         """Enable or disable direct player control."""
@@ -1023,6 +1091,305 @@ class GameLoop:
         if self._line_birth_flash > 0.0:
             flash = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
             flash.fill((215, 232, 255, int(86 * self._line_birth_flash)))
+            self.screen.blit(flash, (0, 0))
+
+    def _can_attempt_impossible_line_motion(self) -> bool:
+        """Return whether the player can currently strain against the Line."""
+        if self.session.active_dimension.id != "1d":
+            return False
+        if self.paused or self.dialogue.is_active or self.first_point_cinematic.is_active:
+            return False
+        if self._is_line_birth_active() or self._line_guardian_active:
+            return False
+        if self.combat and (self.combat.in_combat or self.combat.transitioning):
+            return False
+        if self.dimensional_combat and (self.dimensional_combat.in_combat or self.dimensional_combat.transitioning):
+            return False
+        return True
+
+    def _attempt_impossible_line_motion(self, axis: float) -> None:
+        """Let the player briefly strain toward a forbidden axis in 1D."""
+        if not self._can_attempt_impossible_line_motion():
+            return
+
+        axis = -1.0 if axis < 0 else 1.0
+        self._line_strain_axis = axis
+        self._line_strain_bend = min(1.0, self._line_strain_bend * 0.45 + 1.0)
+        self._line_strain_flash = 1.0
+        self._line_strain_shake = max(self._line_strain_shake, 1.0)
+
+        if not self.audio.play("line_strain", volume_override=0.95):
+            self.audio.play("damage", volume_override=0.55)
+
+        affected = self._confuse_nearby_line_entities(axis)
+        self._line_violation_meter = min(7.0, self._line_violation_meter + 1.0 + affected * 0.28)
+        self.world.emit("line_strain_attempt", axis="up" if axis < 0 else "down", affected=affected)
+
+        if self._line_violation_meter >= 4.6:
+            self._trigger_line_guardian_intervention()
+
+    def _confuse_nearby_line_entities(self, axis: float) -> int:
+        """Make nearby 1D entities visibly uncertain after witnessing impossible motion."""
+        player = self.world.find_player()
+        if not player:
+            return 0
+
+        player_transform = player.get(Transform)
+        if not player_transform:
+            return 0
+
+        player_x = float(player_transform.position[0])
+        affected = 0
+        for entity in self.world.in_dimension("1d"):
+            if not entity.active or entity.id == player.id:
+                continue
+            if entity.has_tag("marker") or entity.has_tag("the_first_point") or entity.get(Portal):
+                continue
+
+            brain = entity.get(AIBrain)
+            transform = entity.get(Transform)
+            if not brain or not transform:
+                continue
+
+            distance = abs(float(transform.position[0]) - player_x)
+            if distance > 12.0:
+                continue
+
+            intensity = max(0.2, 1.0 - distance / 12.0)
+            existing_timer = float(brain.get_state("confused_timer", 0.0))
+            existing_level = float(brain.get_state("confusion_level", 0.0))
+            brain.set_state("confused_timer", max(existing_timer, 1.0 + intensity * 1.6))
+            brain.set_state("confusion_level", min(3.5, existing_level + 0.45 + intensity * 0.9))
+            brain.set_state("confusion_axis", axis)
+            if float(brain.get_state("confusion_phase", 0.0)) == 0.0:
+                brain.set_state("confusion_phase", float(np.random.uniform(0.0, math.tau)))
+            affected += 1
+
+        return affected
+
+    def _update_line_strain(self, dt: float) -> None:
+        """Decay the forbidden-axis strain and guardian punishment animation."""
+        self._line_strain_bend = max(0.0, self._line_strain_bend - dt * 2.6)
+        self._line_strain_flash = max(0.0, self._line_strain_flash - dt * 3.5)
+        self._line_strain_shake = max(0.0, self._line_strain_shake - dt * 4.4)
+        self._line_violation_meter = max(0.0, self._line_violation_meter - dt * 0.14)
+
+        if self._line_guardian_active:
+            self._line_guardian_time += dt
+            self._line_guardian_rotation += dt * 0.85
+            self._line_guardian_flash = max(0.0, self._line_guardian_flash - dt * 0.8)
+
+    def _trigger_line_guardian_intervention(self) -> None:
+        """Summon a higher-dimensional guardian to reset reckless line-breaking."""
+        if self._line_guardian_active:
+            return
+
+        from hypersim.game.ui.textbox import DialogueLine, DialogueSequence, TextBoxStyle
+
+        self._line_guardian_active = True
+        self._line_guardian_time = 0.0
+        self._line_guardian_rotation = 0.0
+        self._line_guardian_flash = 1.0
+        self._line_strain_bend = max(self._line_strain_bend, 0.9)
+        self._line_strain_shake = max(self._line_strain_shake, 1.2)
+        self._line_strain_flash = 1.0
+        self._set_player_control_enabled(False)
+        self.audio.play("guardian_judgment", volume_override=1.0)
+        self._start_line_guardian_music()
+
+        seq_id = "line_guardian_intervention"
+        lines = [
+            DialogueLine(
+                text="The Line screams. A shape with too many edges forces itself through the wound.",
+                style=TextBoxStyle.NARRATOR,
+                duration=1.2,
+            ),
+            DialogueLine(
+                speaker="The Tesseract Guardian",
+                text="Enough.",
+                style=TextBoxStyle.DIMENSION,
+                voice_id="tesseract_guardian",
+            ),
+            DialogueLine(
+                speaker="The Tesseract Guardian",
+                text="Curiosity is not your crime. Contempt is.",
+                style=TextBoxStyle.DIMENSION,
+                voice_id="tesseract_guardian",
+            ),
+            DialogueLine(
+                speaker="The Tesseract Guardian",
+                text="You were given one honest axis and answered it by trying to tear a second through frightened minds.",
+                style=TextBoxStyle.DIMENSION,
+                voice_id="tesseract_guardian",
+            ),
+            DialogueLine(
+                speaker="The Tesseract Guardian",
+                text="So I will unmake you gently, until you remember that existence comes before ambition.",
+                style=TextBoxStyle.DIMENSION,
+                voice_id="tesseract_guardian",
+            ),
+        ]
+        self.dialogue.register_event("line_guardian_reset", self._queue_line_guardian_reset)
+        self.dialogue.register_sequence(
+            DialogueSequence(
+                id=seq_id,
+                lines=lines,
+                pause_game=True,
+                can_skip=False,
+                on_end="line_guardian_reset",
+            )
+        )
+        self.dialogue.start_sequence(seq_id)
+
+    def _queue_line_guardian_reset(self) -> None:
+        """Defer the actual reset until after the punishment dialogue fully closes."""
+        self._line_guardian_reset_pending = True
+
+    def _complete_line_guardian_intervention(self) -> None:
+        """Strip the player back to pre-existence and restart the birth rite."""
+        self._line_guardian_reset_pending = False
+        self._line_guardian_active = False
+        self._line_guardian_time = 0.0
+        self._line_guardian_rotation = 0.0
+        self._line_guardian_flash = 1.0
+        self._line_strain_axis = 0.0
+        self._line_strain_bend = 0.0
+        self._line_strain_flash = 1.0
+        self._line_strain_shake = 0.8
+        self._line_violation_meter = 0.0
+        self._stop_line_guardian_music()
+
+        self.session.progression.lineage_ritual_state = "cohere"
+        self.session.progression.lineage_direction = ""
+        self._chapter_1_cinematic_played = False
+
+        if self.current_world_id != "tutorial_1d":
+            self.current_world_id = "tutorial_1d"
+            self.session.progression.advance_to_world("tutorial_1d")
+            self._reload_dimension()
+            return
+
+        player = self.world.find_player()
+        if player:
+            transform = player.get(Transform)
+            if transform:
+                transform.position[0] = 0.0
+            velocity = player.get(Velocity)
+            if velocity is not None:
+                velocity.linear[:] = 0.0
+
+        for entity in list(self.world.entities.values()):
+            if entity.id == "the_first_point":
+                self.world.despawn(entity.id)
+                continue
+            brain = entity.get(AIBrain)
+            if brain:
+                brain.set_state("confused_timer", 0.0)
+                brain.set_state("confusion_level", 0.0)
+
+        self._start_line_birth_ritual()
+
+    def _guardian_tesseract_geometry(self) -> tuple[list[np.ndarray], list[tuple[int, int]]]:
+        """Return cached 4D hypercube geometry for the punitive guardian overlay."""
+        if hasattr(self, "_line_guardian_vertices") and hasattr(self, "_line_guardian_edges"):
+            return self._line_guardian_vertices, self._line_guardian_edges
+
+        vertices = []
+        for w in (-1.0, 1.0):
+            for z in (-1.0, 1.0):
+                for y in (-1.0, 1.0):
+                    for x in (-1.0, 1.0):
+                        vertices.append(np.array([x, y, z, w], dtype=float))
+        edges = []
+        for i in range(16):
+            for j in range(i + 1, 16):
+                if bin(i ^ j).count("1") == 1:
+                    edges.append((i, j))
+
+        self._line_guardian_vertices = vertices
+        self._line_guardian_edges = edges
+        return vertices, edges
+
+    def _rotate_guardian_vertex(self, vertex: np.ndarray) -> np.ndarray:
+        """Rotate guardian geometry through a few 4D planes."""
+        x, y, z, w = vertex
+        a = self._line_guardian_rotation
+
+        cos_xw, sin_xw = math.cos(a), math.sin(a)
+        x, w = x * cos_xw - w * sin_xw, x * sin_xw + w * cos_xw
+
+        cos_yw, sin_yw = math.cos(a * 0.77), math.sin(a * 0.77)
+        y, w = y * cos_yw - w * sin_yw, y * sin_yw + w * cos_yw
+
+        cos_zw, sin_zw = math.cos(a * 0.53), math.sin(a * 0.53)
+        z, w = z * cos_zw - w * sin_zw, z * sin_zw + w * cos_zw
+
+        cos_xy, sin_xy = math.cos(a * 0.31), math.sin(a * 0.31)
+        x, y = x * cos_xy - y * sin_xy, x * sin_xy + y * cos_xy
+        return np.array([x, y, z, w], dtype=float)
+
+    def _project_guardian_vertex(self, vertex: np.ndarray, center: tuple[int, int], scale: float) -> tuple[int, int, float]:
+        """Project a 4D guardian vertex to the 2D screen."""
+        x, y, z, w = vertex
+        factor_4d = 2.8 / max(0.25, 2.8 - w)
+        x3 = x * factor_4d
+        y3 = y * factor_4d
+        z3 = z * factor_4d
+        factor_3d = 3.6 / max(0.35, 3.6 - z3)
+        return (
+            int(center[0] + x3 * factor_3d * scale),
+            int(center[1] - y3 * factor_3d * scale),
+            w + z3,
+        )
+
+    def _draw_line_guardian_judgment(self) -> None:
+        """Draw the higher-dimensional guardian that punishes repeated overreach."""
+        if not self._line_guardian_active:
+            return
+
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((6, 7, 18, 150))
+        self.screen.blit(overlay, (0, 0))
+
+        center = (self.width // 2, self.height // 2 - 30)
+        scale = 86.0 + 14.0 * math.sin(self._line_guardian_time * 1.7)
+        vertices, edges = self._guardian_tesseract_geometry()
+        projected = [self._project_guardian_vertex(self._rotate_guardian_vertex(v), center, scale) for v in vertices]
+
+        glow = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        for i, j in edges:
+            p1, p2 = projected[i], projected[j]
+            pygame.draw.line(glow, (235, 190, 120, 26), (p1[0], p1[1]), (p2[0], p2[1]), 6)
+        self.screen.blit(glow, (0, 0))
+
+        for i, j in edges:
+            p1, p2 = projected[i], projected[j]
+            depth = max(0.25, min(1.0, (p1[2] + p2[2] + 2.5) / 5.0))
+            edge_color = (
+                int(255 * depth),
+                int(210 * depth),
+                int(150 * depth),
+            )
+            pygame.draw.line(self.screen, edge_color, (p1[0], p1[1]), (p2[0], p2[1]), max(1, int(3 * depth)))
+
+        for x, y, depth in projected:
+            factor = max(0.35, min(1.0, (depth + 2.5) / 5.0))
+            pygame.draw.circle(self.screen, (255, int(220 * factor), int(170 * factor)), (x, y), max(2, int(5 * factor)))
+
+        renderer = self._renderers.get("1d")
+        player = self.world.find_player()
+        if renderer and player:
+            transform = player.get(Transform)
+            if transform:
+                player_screen_x, player_screen_y = renderer.world_to_screen(float(transform.position[0]), 0.0)
+                beam = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+                pygame.draw.line(beam, (255, 220, 180, 120), center, (player_screen_x, player_screen_y), 3)
+                pygame.draw.circle(beam, (255, 220, 180, 90), (player_screen_x, player_screen_y), 28)
+                self.screen.blit(beam, (0, 0))
+
+        if self._line_guardian_flash > 0.0:
+            flash = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            flash.fill((255, 228, 190, int(80 * self._line_guardian_flash)))
             self.screen.blit(flash, (0, 0))
     
     def _start_first_point_cinematic(self) -> None:
@@ -1736,10 +2103,14 @@ class GameLoop:
         dialogue_active = self.dialogue.should_pause_game
         cinematic_active = self.first_point_cinematic.is_active
         line_birth_active = self._is_line_birth_active()
+        guardian_active = self._line_guardian_active
         old_combat_active = self.combat and (self.combat.in_combat or self.combat.transitioning)
         dim_combat_active = self.dimensional_combat and (
             self.dimensional_combat.in_combat or self.dimensional_combat.transitioning
         )
+
+        self._sync_line_birth_music()
+        self._update_line_strain(dt)
 
         if line_birth_active:
             self._update_line_birth_ritual(dt)
@@ -1751,6 +2122,8 @@ class GameLoop:
             self.dimensional_combat.update(dt)
         elif old_combat_active:
             self.combat.update(dt)
+        elif guardian_active:
+            pass
         elif line_birth_active:
             pass
         elif not self.paused and not dialogue_active:
@@ -1765,6 +2138,9 @@ class GameLoop:
 
         self.dialogue.update(dt)
         self.overlays.update(dt)
+
+        if self._line_guardian_reset_pending and not self.dialogue.is_active:
+            self._complete_line_guardian_intervention()
 
         if not self.dialogue.is_active and self._queued_dialogues:
             next_dialogue = self._queued_dialogues.pop(0)
@@ -2260,10 +2636,19 @@ class GameLoop:
                 if self.session.active_dimension.id == "4d":
                     self._try_evolve()
                 return True
+            if event.key == pygame.K_w and self._can_attempt_impossible_line_motion():
+                self._attempt_impossible_line_motion(-1.0)
+                return True
+            if event.key == pygame.K_s and self._can_attempt_impossible_line_motion():
+                self._attempt_impossible_line_motion(1.0)
+                return True
         elif event.type == pygame.MOUSEBUTTONDOWN:
             dim = self.session.active_dimension.id
             if dim in ("3d", "4d") and not self._mouse_captured and not self.dialogue.is_active:
                 self._set_mouse_capture(True)
+
+        if self._line_guardian_active:
+            return True
 
         if self._is_line_birth_active() and not self.dialogue.is_active:
             if self._handle_line_birth_input(event):
@@ -2335,6 +2720,13 @@ class GameLoop:
         # Pass delta time to LineRenderer for particle updates
         if dim_id == "1d" and hasattr(renderer, 'set_delta_time'):
             renderer.set_delta_time(self.clock.get_time() / 1000.0)
+        if dim_id == "1d" and hasattr(renderer, 'set_dimensional_strain'):
+            renderer.set_dimensional_strain(
+                self._line_strain_bend if not self._line_guardian_active else max(self._line_strain_bend, 0.75),
+                self._line_strain_axis if not self._line_guardian_active else (self._line_strain_axis or 1.0),
+                max(self._line_strain_flash, self._line_guardian_flash),
+                self._line_strain_shake + (0.4 if self._line_guardian_active else 0.0),
+            )
         
         # Update camera orientation for 3D/4D renderers from controllers
         if dim_id == "3d" and hasattr(renderer, 'set_camera_orientation'):
@@ -2357,6 +2749,8 @@ class GameLoop:
         # Draw overlays (notifications, etc.)
         self.overlays.draw()
 
+        if self._line_guardian_active and dim_id == "1d":
+            self._draw_line_guardian_judgment()
         if self._is_line_birth_active() and dim_id == "1d":
             self._draw_line_birth_ritual()
         
@@ -2388,7 +2782,7 @@ class GameLoop:
     
     def _draw_session_info(self) -> None:
         """Draw session/progression info."""
-        if self._is_line_birth_active():
+        if self._is_line_birth_active() or self._line_guardian_active:
             return
 
         font = pygame.font.Font(None, 20)
@@ -2442,6 +2836,8 @@ class GameLoop:
                 controls = "WASD: Move | Mouse: Look | Q/E: W-axis | V: Evolve | SPACE/ENTER: Dialogue"
             else:
                 controls = "WASD: Move | Mouse: Look | Space/Ctrl: Up/Down | SPACE/ENTER: Dialogue"
+        elif dim_id == "1d":
+            controls = "A/D: Move | W/S: Strain the Line | SHIFT: Phase | E: Interact"
         else:
             controls = "WASD/Arrows: Move | E: Interact | SPACE/ENTER: Dialogue"
         

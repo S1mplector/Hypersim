@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, Optional, TYPE_CHECKING
 
 import pygame
+import numpy as np
 
 if TYPE_CHECKING:
     from hypersim.game.ecs.world import World
@@ -57,8 +58,11 @@ class AudioSystem:
         
         if sounds_path:
             self.sounds_path = Path(sounds_path)
+            self.assets_path = self.sounds_path.parent
         else:
-            self.sounds_path = Path(__file__).parent.parent / "assets" / "sounds"
+            self.assets_path = Path(__file__).parent.parent / "assets"
+            self.sounds_path = self.assets_path / "sounds"
+        self.bgm_path = self.assets_path / "bgm"
         
         self._try_init()
     
@@ -88,7 +92,49 @@ class AudioSystem:
                 return True
             except pygame.error:
                 pass
+        fallback = self._build_procedural_sound(config.id)
+        if fallback is not None:
+            fallback.set_volume(config.volume * self._sfx_volume)
+            self._sounds[config.id] = fallback
+            self._playing_counts[config.id] = 0
+            return True
         return False
+
+    def _build_procedural_sound(self, sound_id: str) -> Optional[pygame.mixer.Sound]:
+        """Generate a small synthetic fallback for key gameplay sounds."""
+        if not self._initialized:
+            return None
+
+        sample_rate = 44100
+        if sound_id == "line_strain":
+            duration = 0.62
+            t = np.linspace(0.0, duration, int(sample_rate * duration), endpoint=False, dtype=np.float32)
+            sweep = np.linspace(190.0, 76.0, t.size, dtype=np.float32)
+            phase = np.cumsum((2.0 * np.pi * sweep) / sample_rate)
+            body = np.sin(phase) * 0.42
+            rasp = np.sign(np.sin(2.0 * np.pi * 34.0 * t + 0.7 * np.sin(2.0 * np.pi * 2.7 * t))) * 0.08
+            whine = np.sin(2.0 * np.pi * (320.0 + 24.0 * np.sin(2.0 * np.pi * 5.0 * t)) * t) * 0.06
+            envelope = np.minimum(1.0, t / 0.03) * np.exp(-t * 2.35)
+            signal = (body + rasp + whine) * envelope
+        elif sound_id == "guardian_judgment":
+            duration = 1.35
+            t = np.linspace(0.0, duration, int(sample_rate * duration), endpoint=False, dtype=np.float32)
+            sweep = np.linspace(158.0, 44.0, t.size, dtype=np.float32)
+            phase = np.cumsum((2.0 * np.pi * sweep) / sample_rate)
+            body = np.sin(phase) * 0.34 + np.sin(phase * 0.51) * 0.18
+            lattice = np.sign(np.sin(2.0 * np.pi * 22.0 * t)) * 0.08
+            shear = np.sin(2.0 * np.pi * (520.0 - 180.0 * (t / duration)) * t) * 0.05
+            envelope = np.minimum(1.0, t / 0.05) * np.exp(-t * 1.05)
+            signal = (body + lattice + shear) * envelope
+        else:
+            return None
+
+        stereo = np.column_stack((signal, signal * 0.96))
+        pcm = np.clip(stereo * 32767, -32767, 32767).astype(np.int16)
+        try:
+            return pygame.sndarray.make_sound(pcm)
+        except pygame.error:
+            return None
     
     def register_defaults(self) -> None:
         """Register default game sounds."""
@@ -103,6 +149,8 @@ class AudioSystem:
             SoundConfig("victory", "victory.wav", volume=0.8),
             SoundConfig("spare", "spare.wav", volume=0.7),
             SoundConfig("boss_defeated", "boss_defeated.wav", volume=0.9),
+            SoundConfig("line_strain", "line_strain.wav", volume=0.72, max_instances=12),
+            SoundConfig("guardian_judgment", "guardian_judgment.wav", volume=0.9, max_instances=3),
         ]
         for config in defaults:
             self.register_sound(config)
@@ -141,8 +189,8 @@ class AudioSystem:
         """Play background music."""
         if not self._initialized or self._muted:
             return False
-        full_path = self.sounds_path / music_path
-        if not full_path.exists():
+        full_path = self._resolve_music_path(music_path)
+        if full_path is None:
             return False
         try:
             pygame.mixer.music.load(str(full_path))
@@ -151,6 +199,24 @@ class AudioSystem:
             return True
         except pygame.error:
             return False
+
+    def _resolve_music_path(self, music_path: str) -> Optional[Path]:
+        """Resolve a music file against known asset roots."""
+        candidate = Path(music_path)
+        if candidate.is_absolute():
+            return candidate if candidate.exists() else None
+
+        search_roots = [
+            self.sounds_path,
+            self.bgm_path,
+            self.assets_path,
+        ]
+        for root in search_roots:
+            full_path = root / candidate
+            if full_path.exists():
+                return full_path
+
+        return None
     
     def stop_music(self) -> None:
         if self._initialized:

@@ -1,6 +1,7 @@
 """AI system - processes NPC behaviors."""
 from __future__ import annotations
 
+import math
 from typing import Optional, TYPE_CHECKING
 
 import numpy as np
@@ -35,6 +36,14 @@ class AISystem(System):
             brain = entity.get(AIBrain)
             transform = entity.get(Transform)
             velocity = entity.get(Velocity)
+
+            confused_timer = float(brain.get_state("confused_timer", 0.0))
+            if confused_timer > 0.0:
+                brain.set_state("confused_timer", max(0.0, confused_timer - dt))
+                confusion_level = max(0.0, float(brain.get_state("confusion_level", 0.0)) - dt * 0.4)
+                brain.set_state("confusion_level", confusion_level)
+                self._behavior_confused(entity, brain, transform, velocity, dt)
+                continue
             
             # Dispatch to behavior handler
             if brain.behavior == "idle":
@@ -121,3 +130,30 @@ class AISystem(System):
         
         velocity.linear.fill(0)
         velocity.linear[0] = direction * speed
+
+    def _behavior_confused(
+        self, entity: "Entity", brain: AIBrain, transform: Transform, velocity: Velocity, dt: float
+    ) -> None:
+        """Temporarily destabilize an entity after witnessing impossible movement."""
+        level = float(brain.get_state("confusion_level", 0.0))
+        phase = float(brain.get_state("confusion_phase", 0.0)) + dt * (5.0 + level * 2.5)
+        axis_bias = float(brain.get_state("confusion_axis", 0.0))
+        brain.set_state("confusion_phase", phase)
+
+        velocity.linear.fill(0)
+
+        anchor = entity.get(DimensionAnchor)
+        if anchor and anchor.dimension_id != "1d":
+            return
+
+        center = float(brain.get_state("center", transform.position[0]))
+        pull_to_center = (center - float(transform.position[0])) * 0.9
+        jitter = math.sin(phase * 2.2 + transform.position[0] * 0.35) * (0.35 + level * 0.8)
+        impossible_pull = axis_bias * math.sin(phase * 0.8) * (0.15 + level * 0.45)
+
+        if brain.behavior == "stationary":
+            velocity.linear[0] = jitter * 0.4 + impossible_pull * 0.3
+            return
+
+        speed_cap = max(1.0, float(brain.get_state("speed", 2.0)) * (0.45 + min(0.6, level * 0.18)))
+        velocity.linear[0] = float(np.clip(pull_to_center + jitter + impossible_pull, -speed_cap, speed_cap))

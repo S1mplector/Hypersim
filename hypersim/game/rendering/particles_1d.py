@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import pygame
 import numpy as np
+from hypersim.game.ecs.component import AIBrain
 
 if TYPE_CHECKING:
     from hypersim.game.ecs.entity import Entity
@@ -433,6 +434,19 @@ class ParticleSystem1D:
         color: Tuple[int, int, int] = (255, 255, 255),
     ) -> ParticleEmitter:
         """Get existing emitter or create a new one."""
+        existing = self.emitters.get(entity_id)
+        if existing and existing.particle_type != particle_type:
+            self.emitters[entity_id] = ParticleEmitter(
+                entity_id=entity_id,
+                particle_type=particle_type,
+                base_x=screen_x,
+                base_y=self.line_y,
+                color=color,
+            )
+            return self.emitters[entity_id]
+        if existing:
+            existing.color = color
+            return existing
         if entity_id not in self.emitters:
             self.emitters[entity_id] = ParticleEmitter(
                 entity_id=entity_id,
@@ -661,6 +675,9 @@ class ParticleSystem1D:
 
 def get_particle_type_for_entity(entity: "Entity") -> ParticleType:
     """Determine the particle type for an entity based on its tags."""
+    brain = entity.get(AIBrain)
+    if brain and float(brain.get_state("confused_timer", 0.0)) > 0.05 and not entity.has_tag("player"):
+        return ParticleType.LINE_WALKER
     if entity.has_tag("player"):
         return ParticleType.PLAYER_TRAIL
     elif entity.has_tag("the_first_point"):

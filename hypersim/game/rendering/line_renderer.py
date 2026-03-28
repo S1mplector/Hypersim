@@ -30,11 +30,18 @@ class LineRenderer(DimensionRenderer):
         self.scale = 19.0  # Pixels per unit (tighter, more zoomed-in feel)
         self.sprite_scale = 1.28  # Visual scale multiplier for 1D entities
         self.background_color = (6, 9, 20)
-        self.line_y = self.height // 2  # Y position of the line on screen
+        self._base_line_y = self.height // 2
+        self.line_y = self._base_line_y  # Y position of the line on screen
         self.line_height = 126  # Height of the visible line strip
         self.visibility_radius = 20.0  # How far the player can see (in world units)
         self.fog_enabled = True
         self._bg_time = 0.0
+        self._screen_shake = 0.0
+        self._shake_offset = (0, 0)
+        self._dimensional_strain = 0.0
+        self._dimensional_axis = 0.0
+        self._dimensional_flash = 0.0
+        self._strain_origin_x = self.width // 2
         
         # Subtle parallax stars for better depth in 1D.
         rng = np.random.default_rng(42)
@@ -71,17 +78,68 @@ class LineRenderer(DimensionRenderer):
         # Healing mechanic state
         self._healing_check_timer = 0.0
         self._healing_check_interval = 0.5  # Check every 0.5 seconds
+
+    def set_dimensional_strain(
+        self,
+        bend_strength: float,
+        bend_axis: float,
+        flash_strength: float,
+        shake_strength: float,
+    ) -> None:
+        """Set transient 1D instability caused by impossible movement attempts."""
+        self._dimensional_strain = max(0.0, float(bend_strength))
+        self._dimensional_axis = float(np.clip(bend_axis, -1.0, 1.0))
+        self._dimensional_flash = max(0.0, float(flash_strength))
+        self._screen_shake = max(0.0, float(shake_strength))
+
+    def world_to_screen(self, world_x: float, world_y: float = 0.0) -> tuple[int, int]:
+        """Convert world coordinates to screen coordinates with current shake applied."""
+        screen_x, screen_y = super().world_to_screen(world_x, world_y)
+        return screen_x + int(self._shake_offset[0]), screen_y + int(self._shake_offset[1])
+
+    def _line_y_at_screen_x(self, screen_x: int, offset: float = 0.0, bend_scale: float = 1.0) -> int:
+        """Return the current bent line height for a screen-space x position."""
+        base_y = self.line_y + offset
+        if self._dimensional_strain <= 0.001 or abs(self._dimensional_axis) <= 0.001:
+            return int(base_y)
+
+        spread = 54.0 + 48.0 * self._dimensional_strain
+        dx = (screen_x - self._strain_origin_x) / spread
+        gaussian = math.exp(-(dx * dx))
+        local_bend = gaussian * self._dimensional_axis * 16.0 * self._dimensional_strain * bend_scale
+        ripple = math.sin(dx * 4.2 - self._bg_time * 16.0) * 2.6 * gaussian * self._dimensional_strain * bend_scale
+        return int(base_y + local_bend + ripple)
+
+    def _draw_confusion_halo(self, screen_x: int, line_y: int, intensity: float) -> None:
+        """Draw visible panic/confusion around an entity."""
+        count = 3
+        radius = self._sz(18) + int(self._sz(3) * min(2.0, intensity))
+        for idx in range(count):
+            orbit = self._bg_time * (3.0 + idx) + idx * 2.1 + screen_x * 0.01
+            dot_x = screen_x + int(math.cos(orbit) * radius)
+            dot_y = line_y - self._sz(14) + int(math.sin(orbit * 1.3) * self._sz(7))
+            pygame.draw.circle(self.screen, (255, 230, 150), (dot_x, dot_y), self._sz(2))
+        arc_rect = pygame.Rect(0, 0, self._sz(28), self._sz(18))
+        arc_rect.center = (screen_x, line_y - self._sz(20))
+        pygame.draw.arc(self.screen, (255, 210, 140), arc_rect, 0.15, math.pi - 0.15, 2)
     
     def render(self, world: "World", dimension_spec: Optional["DimensionSpec"] = None) -> None:
         """Render the 1D world."""
         self.clear()
         self._bg_time += self._last_dt
+        if self._screen_shake > 0.01:
+            max_offset = max(1, int(8 * self._screen_shake))
+            self._shake_offset = (
+                int(np.random.randint(-max_offset, max_offset + 1)),
+                int(np.random.randint(-max_offset, max_offset + 1)),
+            )
+        else:
+            self._shake_offset = (0, 0)
+        self.line_y = self._base_line_y + int(self._shake_offset[1])
+        self.particle_system.line_y = self.line_y
         
         # Update particle system
         self.particle_system.update(self._last_dt)
-        
-        # Draw the line background
-        self._draw_line_background()
         
         # Get player for visibility calculations
         player = world.find_player()
@@ -94,6 +152,10 @@ class LineRenderer(DimensionRenderer):
                 # Update camera to follow player
                 self.camera_offset[0] = player_x
                 player_screen_x = self.world_to_screen(player_x, 0)[0]
+        self._strain_origin_x = player_screen_x
+
+        # Draw the line background after camera/strain origin are known.
+        self._draw_line_background()
         
         # Get all entities in 1D dimension
         entities = world.in_dimension("1d")
@@ -116,6 +178,11 @@ class LineRenderer(DimensionRenderer):
                 continue
             self._render_entity(entity, player_x)
             self._update_entity_particles(entity, player_x)
+
+        if self._dimensional_flash > 0.01:
+            flash = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            flash.fill((205, 228, 255, int(58 * self._dimensional_flash)))
+            self.screen.blit(flash, (0, 0))
         
         # Draw UI overlay
         self._draw_ui(world, player)
@@ -212,40 +279,34 @@ class LineRenderer(DimensionRenderer):
             pygame.draw.line(strip, color, (0, y), (self.width, y), 1)
         self.screen.blit(strip, (0, strip_top))
 
+        def line_points(step: int, offset: float = 0.0, bend_scale: float = 1.0) -> list[tuple[int, int]]:
+            return [
+                (sx, self._line_y_at_screen_x(sx, offset=offset, bend_scale=bend_scale))
+                for sx in range(-20, self.width + 21, step)
+            ]
+
         # Upper/lower guide rails.
         rail_color = (52, 72, 108)
-        pygame.draw.line(self.screen, rail_color, (0, self.line_y - 24), (self.width, self.line_y - 24), 1)
-        pygame.draw.line(self.screen, rail_color, (0, self.line_y + 24), (self.width, self.line_y + 24), 1)
+        upper = line_points(12, offset=-24.0, bend_scale=0.42)
+        lower = line_points(12, offset=24.0, bend_scale=0.42)
+        if len(upper) > 1:
+            pygame.draw.lines(self.screen, rail_color, False, upper, 1)
+        if len(lower) > 1:
+            pygame.draw.lines(self.screen, rail_color, False, lower, 1)
 
         # Draw the main line with glow.
-        pygame.draw.line(
-            self.screen,
-            (22, 34, 62),
-            (0, self.line_y),
-            (self.width, self.line_y),
-            8,
-        )
-        pygame.draw.line(
-            self.screen,
-            (86, 122, 182),
-            (0, self.line_y),
-            (self.width, self.line_y),
-            3
-        )
-        pygame.draw.line(
-            self.screen,
-            (140, 184, 238),
-            (0, self.line_y),
-            (self.width, self.line_y),
-            1
-        )
+        main_points = line_points(10)
+        if len(main_points) > 1:
+            pygame.draw.lines(self.screen, (22, 34, 62), False, main_points, 8)
+            pygame.draw.lines(self.screen, (86, 122, 182), False, main_points, 3)
+            pygame.draw.lines(self.screen, (140, 184, 238), False, main_points, 1)
         
         # Slight oscillating waveform to make the line feel alive.
         wave_points = []
         for sx in range(0, self.width + 20, 20):
             wx = (sx - self.width / 2) / self.scale + self.camera_offset[0]
             offset = math.sin(wx * 0.8 + self._bg_time * 2.2) * 3.0
-            wave_points.append((sx, int(self.line_y - 14 + offset)))
+            wave_points.append((sx, self._line_y_at_screen_x(sx, offset=-14 + offset, bend_scale=0.65)))
         if len(wave_points) > 1:
             pygame.draw.lines(self.screen, (90, 116, 165), False, wave_points, 1)
         
@@ -264,11 +325,12 @@ class LineRenderer(DimensionRenderer):
                 is_major = int(abs(round(wx))) % 10 == 0
                 marker_len = 16 if is_major else 8
                 marker_color = (74, 98, 142) if is_major else (44, 56, 88)
+                marker_y = self._line_y_at_screen_x(sx, bend_scale=0.52)
                 pygame.draw.line(
                     self.screen,
                     marker_color,
-                    (sx, self.line_y - marker_len),
-                    (sx, self.line_y + marker_len),
+                    (sx, marker_y - marker_len),
+                    (sx, marker_y + marker_len),
                     1
                 )
     
@@ -369,6 +431,7 @@ class LineRenderer(DimensionRenderer):
         """Render a single entity on the line."""
         transform = entity.get(Transform)
         renderable = entity.get(Renderable)
+        brain = entity.get(AIBrain)
         
         if not transform:
             return
@@ -392,6 +455,15 @@ class LineRenderer(DimensionRenderer):
         # Determine color and size
         color = renderable.color if renderable else (255, 255, 255)
         base_size = self._sz(8)
+        confused_timer = float(brain.get_state("confused_timer", 0.0)) if brain else 0.0
+        local_line_y = self._line_y_at_screen_x(screen_x)
+        if confused_timer > 0.0:
+            phase = float(brain.get_state("confusion_phase", 0.0))
+            screen_x += int(math.sin(self._bg_time * 15.0 + phase + world_x * 0.3) * self._sz(min(4.0, 1.2 + confused_timer * 1.8)))
+            local_line_y += int(math.cos(self._bg_time * 12.0 + phase) * self._sz(min(3.0, 0.8 + confused_timer * 0.8)))
+        
+        old_line_y = self.line_y
+        self.line_y = local_line_y
         
         # Different rendering for different entity types
         if entity.has_tag("player"):
@@ -409,6 +481,10 @@ class LineRenderer(DimensionRenderer):
         else:
             # Generic entity
             self._draw_point(screen_x, color, base_size, alpha)
+        
+        self.line_y = old_line_y
+        if confused_timer > 0.0:
+            self._draw_confusion_halo(screen_x, local_line_y, confused_timer)
     
     def _draw_player(self, screen_x: int, color: tuple, alpha: int) -> None:
         """Draw the player entity."""
@@ -428,6 +504,30 @@ class LineRenderer(DimensionRenderer):
         pygame.draw.circle(self.screen, main_color, (screen_x, self.line_y), self._sz(10))
         pygame.draw.circle(self.screen, (235, 248, 255), (screen_x, self.line_y), self._sz(5))
         pygame.draw.circle(self.screen, (140, 220, 255), (screen_x, self.line_y), self._sz(14), max(1, self._sz(2) // 2))
+
+        if self._dimensional_strain > 0.02:
+            stretch = 1.0 + self._dimensional_strain * 0.7
+            axis_pull = -self._dimensional_axis * self._sz(10 + 8 * self._dimensional_strain)
+            arc_rect = pygame.Rect(0, 0, self._sz(34), int(self._sz(28) * stretch))
+            arc_rect.center = (screen_x, self.line_y + axis_pull * 0.2)
+            pygame.draw.ellipse(self.screen, (185, 230, 255), arc_rect, 2)
+            pygame.draw.line(
+                self.screen,
+                (215, 240, 255),
+                (screen_x, self.line_y - axis_pull),
+                (screen_x, self.line_y + axis_pull),
+                max(1, self._sz(2) // 2),
+            )
+            for idx in range(3):
+                surge = 18 + idx * 10
+                alpha_ring = max(18, 80 - idx * 22)
+                self._draw_glow_circle(
+                    screen_x,
+                    self.line_y + int(axis_pull * 0.25),
+                    self._sz(surge * self._dimensional_strain),
+                    (170, 220, 255),
+                    alpha_ring,
+                )
     
     def _draw_enemy(self, entity: "Entity", screen_x: int, color: tuple, alpha: int) -> None:
         """Draw an enemy entity."""
