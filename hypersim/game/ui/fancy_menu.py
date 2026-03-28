@@ -12,6 +12,8 @@ from pathlib import Path
 import pygame
 import numpy as np
 
+from hypersim.game.save_system import GameSaveData, SaveSlot, SaveType, get_save_manager
+
 
 def load_font(candidates: List[str], size: int, bold: bool = False, italic: bool = False) -> pygame.font.Font:
     """Pick the first available system font from a candidate list."""
@@ -20,6 +22,17 @@ def load_font(candidates: List[str], size: int, bold: bool = False, italic: bool
         if path:
             return pygame.font.Font(path, size)
     return pygame.font.Font(None, size)
+
+
+def fit_text(font: pygame.font.Font, text: str, max_width: int) -> str:
+    """Clamp text to a maximum rendered width."""
+    if font.size(text)[0] <= max_width:
+        return text
+
+    clipped = text
+    while clipped and font.size(f"{clipped}...")[0] > max_width:
+        clipped = clipped[:-1]
+    return f"{clipped}..." if clipped else "..."
 
 
 # =============================================================================
@@ -571,6 +584,7 @@ class AnimatedButton:
 class MenuState(Enum):
     """Menu screen states."""
     MAIN = auto()
+    LOAD_SAVE = auto()
     SETTINGS = auto()
     AUDIO = auto()
     GRAPHICS = auto()
@@ -585,6 +599,7 @@ class FancyMainMenu:
         self.width = screen.get_width()
         self.height = screen.get_height()
         self.minimal_mode = True
+        self.save_manager = get_save_manager()
         
         # State
         self.state = MenuState.MAIN
@@ -597,6 +612,12 @@ class FancyMainMenu:
         self.selection_phase = 0.0
         self.selected_index = 0
         self._dragging_setting: Optional[str] = None
+        self._load_page = 0
+        self._load_page_size = 4
+        self._load_slots: List[SaveSlot] = []
+        self._load_slot_buttons: Dict[str, SaveSlot] = {}
+        self._load_visible_button_ids: List[str] = []
+        self._selected_save_data: Optional[GameSaveData] = None
         
         # Background
         self.cosmic_bg = CosmicBackground(self.width, self.height)
@@ -627,10 +648,13 @@ class FancyMainMenu:
         self._font_state = load_font(["avenirnext", "gillsans", "helveticaneue", "arial"], 21, bold=True)
 
         self._menu_blurbs = {
-            "new_game": "Begin on the Line and climb toward new axes.",
-            "load_save": "Resume the last stable configuration.",
-            "settings": "Adjust sound, display, and controls.",
-            "quit": "Leave the lattice and close the simulation.",
+            "new_game": "Create a new game save",
+            "load_save": "Choose a specific save.",
+            "settings": "Adjust sound, display, and controls",
+            "quit": "Leave the lattice",
+            "load_prev": "Move toward the newer saves.",
+            "load_next": "Move toward the older saves.",
+            "load_back": "Return to the primary menu.",
             "audio": "Set the balance between hush and signal.",
             "graphics": "Choose the cleanest way to read the field.",
             "controls": "Tune movement and perception.",
@@ -720,12 +744,41 @@ class FancyMainMenu:
             width=button_width,
             height=button_height,
         )
+
+        load_x, load_y, load_width, load_height, load_spacing = self._get_load_layout()
+        self.buttons["load_prev"] = AnimatedButton(
+            id="load_prev",
+            text="Newer Saves",
+            x=load_x,
+            y=load_y + self._load_page_size * load_spacing + 6,
+            width=load_width,
+            height=load_height,
+        )
+        self.buttons["load_next"] = AnimatedButton(
+            id="load_next",
+            text="Older Saves",
+            x=load_x,
+            y=load_y + (self._load_page_size + 1) * load_spacing + 6,
+            width=load_width,
+            height=load_height,
+        )
+        self.buttons["load_back"] = AnimatedButton(
+            id="load_back",
+            text="Back",
+            x=load_x,
+            y=load_y + (self._load_page_size + 2) * load_spacing + 6,
+            width=load_width,
+            height=load_height,
+        )
         
         # Set callbacks
         self.buttons["new_game"].on_click = lambda: self._start_mode("new_game")
-        self.buttons["load_save"].on_click = lambda: self._start_mode("load_save")
+        self.buttons["load_save"].on_click = self._open_load_menu
         self.buttons["settings"].on_click = lambda: self._go_to(MenuState.SETTINGS)
         self.buttons["quit"].on_click = self._quit
+        self.buttons["load_prev"].on_click = lambda: self._change_load_page(-1)
+        self.buttons["load_next"].on_click = lambda: self._change_load_page(1)
+        self.buttons["load_back"].on_click = lambda: self._go_to(MenuState.MAIN)
         
         self.buttons["audio"].on_click = lambda: self._go_to(MenuState.AUDIO)
         self.buttons["graphics"].on_click = lambda: self._go_to(MenuState.GRAPHICS)
@@ -767,6 +820,115 @@ class FancyMainMenu:
         self.state = state
         self.selected_index = 0
         self._dragging_setting = None
+
+    def _get_load_layout(self) -> Tuple[int, int, int, int, int]:
+        """Return layout constants for the load-save submenu."""
+        return (96, 292, 390, 38, 48)
+
+    def _open_load_menu(self) -> None:
+        """Open the load-save submenu and refresh slots."""
+        self._selected_save_data = None
+        self._refresh_load_buttons(reset_page=True)
+        self._go_to(MenuState.LOAD_SAVE)
+
+    def _change_load_page(self, delta: int) -> None:
+        """Change the visible save page."""
+        if not self._load_slots:
+            return
+
+        page_count = self._get_load_page_count()
+        self._load_page = max(0, min(page_count - 1, self._load_page + delta))
+        self._refresh_load_buttons()
+        self.selected_index = 0
+
+    def _get_loadable_slots(self) -> List[SaveSlot]:
+        """Collect all non-empty saves, ordered by recency."""
+        slots = [
+            slot
+            for slot in (
+                self.save_manager.get_manual_slots()
+                + self.save_manager.get_auto_slots()
+                + [self.save_manager.get_quicksave_slot()]
+            )
+            if not slot.is_empty and slot.metadata
+        ]
+        slots.sort(key=lambda slot: slot.metadata.updated_at if slot.metadata else 0.0, reverse=True)
+        return slots
+
+    def _get_load_page_count(self) -> int:
+        """Return the total number of load submenu pages."""
+        return max(1, math.ceil(len(self._load_slots) / max(1, self._load_page_size)))
+
+    def _refresh_load_buttons(self, reset_page: bool = False) -> None:
+        """Rebuild visible save-slot buttons for the current page."""
+        for button_id in list(self._load_slot_buttons):
+            self.buttons.pop(button_id, None)
+        self._load_slot_buttons.clear()
+
+        self._load_slots = self._get_loadable_slots()
+        if reset_page:
+            self._load_page = 0
+        self._load_page = max(0, min(self._load_page, self._get_load_page_count() - 1))
+
+        load_x, load_y, load_width, load_height, load_spacing = self._get_load_layout()
+        start = self._load_page * self._load_page_size
+        visible_slots = self._load_slots[start : start + self._load_page_size]
+
+        self._load_visible_button_ids = []
+        for index, slot in enumerate(visible_slots):
+            button_id = f"load_slot_{start + index}"
+            button = AnimatedButton(
+                id=button_id,
+                text=slot.metadata.save_name if slot.metadata else slot.display_name,
+                x=load_x,
+                y=load_y + index * load_spacing,
+                width=load_width,
+                height=load_height,
+            )
+            button.on_click = lambda slot=slot: self._select_load_slot(slot)
+            self.buttons[button_id] = button
+            self._load_slot_buttons[button_id] = slot
+            self._load_visible_button_ids.append(button_id)
+
+        if self._load_page > 0:
+            self._load_visible_button_ids.append("load_prev")
+        if self._load_page < self._get_load_page_count() - 1:
+            self._load_visible_button_ids.append("load_next")
+        self._load_visible_button_ids.append("load_back")
+
+    def _select_load_slot(self, slot: SaveSlot) -> None:
+        """Load the selected slot and exit the menu."""
+        self._selected_save_data = self.save_manager.load_from_slot(slot.slot_id, slot.slot_type)
+        if self._selected_save_data:
+            self._start_mode("load_save")
+
+    def consume_selected_save_data(self) -> Optional[GameSaveData]:
+        """Return the chosen save data once."""
+        save_data = self._selected_save_data
+        self._selected_save_data = None
+        return save_data
+
+    def _get_preview_slot(self) -> Optional[SaveSlot]:
+        """Return the save slot currently highlighted in the load submenu."""
+        if not self._load_slot_buttons:
+            return None
+
+        if self._load_visible_button_ids:
+            button_id = self._load_visible_button_ids[self.selected_index % len(self._load_visible_button_ids)]
+            if button_id in self._load_slot_buttons:
+                return self._load_slot_buttons[button_id]
+
+        return next(iter(self._load_slot_buttons.values()), None)
+
+    def _format_slot_prefix(self, slot: SaveSlot) -> str:
+        """Format a compact save-slot prefix."""
+        if slot.slot_type == SaveType.MANUAL:
+            return f"M{slot.slot_id:02d}"
+        if slot.slot_type == SaveType.AUTO:
+            return f"A{slot.slot_id:02d}"
+        if slot.slot_type == SaveType.QUICKSAVE:
+            return "QS"
+        return f"S{slot.slot_id:02d}"
     
     def update(self, dt: float) -> None:
         """Update menu animations."""
@@ -816,6 +978,8 @@ class FancyMainMenu:
         """Get button IDs for current state."""
         if self.state == MenuState.MAIN:
             return ["new_game", "load_save", "settings", "quit"]
+        elif self.state == MenuState.LOAD_SAVE:
+            return self._load_visible_button_ids
         elif self.state == MenuState.SETTINGS:
             return ["audio", "graphics", "controls", "back_settings"]
         elif self.state in (MenuState.AUDIO, MenuState.GRAPHICS, MenuState.CONTROLS):
@@ -829,8 +993,10 @@ class FancyMainMenu:
             if event.key == pygame.K_ESCAPE:
                 if self.state == MenuState.MAIN:
                     self._quit()
+                elif self.state in (MenuState.LOAD_SAVE, MenuState.SETTINGS):
+                    self._go_to(MenuState.MAIN)
                 else:
-                    self._go_to(MenuState.MAIN if self.state == MenuState.SETTINGS else MenuState.SETTINGS)
+                    self._go_to(MenuState.SETTINGS)
                 return True
             if active_buttons and event.key in (pygame.K_UP, pygame.K_LEFT):
                 self.selected_index = (self.selected_index - 1) % len(active_buttons)
@@ -1047,20 +1213,55 @@ class FancyMainMenu:
             scale=105,
             color=(105, 126, 156),
         )
+        if self.state == MenuState.LOAD_SAVE:
+            self._draw_load_preview(right_panel)
 
-        note_title = self._font_state.render("Field Notes", True, (224, 228, 233))
-        self.screen.blit(note_title, (right_panel.x + 26, right_panel.bottom - 128))
+    def _draw_load_preview(self, panel: pygame.Rect) -> None:
+        """Draw selected save details inside the right-side panel."""
+        preview_slot = self._get_preview_slot()
+        page_text = self._font_meta.render(
+            f"ARCHIVE {self._load_page + 1}/{self._get_load_page_count()}",
+            True,
+            (142, 154, 170),
+        )
+        self.screen.blit(page_text, (panel.x + 26, panel.bottom - 226))
 
-        notes = [
-            "Perception is learned one axis at a time.",
-            "Every new dimension simplifies one old problem",
-            "and creates a stranger one.",
+        pygame.draw.line(
+            self.screen,
+            (58, 68, 82),
+            (panel.x + 26, panel.bottom - 196),
+            (panel.right - 26, panel.bottom - 196),
+            1,
+        )
+
+        if preview_slot is None or not preview_slot.metadata:
+            empty_title = self._font_state.render("NO SAVES", True, (228, 232, 238))
+            empty_body = self._font_small.render("No save files were found on this machine.", True, (160, 171, 186))
+            self.screen.blit(empty_title, (panel.x + 26, panel.bottom - 168))
+            self.screen.blit(empty_body, (panel.x + 26, panel.bottom - 130))
+            return
+
+        title = fit_text(self._font_state, preview_slot.metadata.save_name.upper(), panel.width - 52)
+        title_surf = self._font_state.render(title, True, (236, 232, 220))
+        self.screen.blit(title_surf, (panel.x + 26, panel.bottom - 168))
+
+        details = [
+            ("Slot", self._format_slot_prefix(preview_slot)),
+            ("Type", preview_slot.slot_type.value.title()),
+            ("Dimension", preview_slot.metadata.current_dimension.upper()),
+            ("Updated", preview_slot.last_played),
+            ("Playtime", preview_slot.playtime_display),
+            ("Chapter", str(preview_slot.metadata.current_chapter)),
+            ("Completion", f"{preview_slot.metadata.completion_percent:.0f}%"),
         ]
-        note_y = right_panel.bottom - 96
-        for line in notes:
-            text = self._font_small.render(line, True, (160, 171, 186))
-            self.screen.blit(text, (right_panel.x + 26, note_y))
-            note_y += 22
+
+        y = panel.bottom - 128
+        for label, value in details:
+            label_surf = self._font_meta.render(label.upper(), True, (130, 142, 158))
+            value_surf = self._font_small.render(value, True, (206, 212, 220))
+            self.screen.blit(label_surf, (panel.x + 26, y))
+            self.screen.blit(value_surf, (panel.x + 132, y))
+            y += 24
     
     def _draw_title(self) -> None:
         """Draw the game title."""
@@ -1068,22 +1269,23 @@ class FancyMainMenu:
 
         if self.minimal_mode:
             left_x = 96
-            eyebrow = self._font_meta.render("DIMENSIONAL ADVENTURE", True, (148, 158, 171))
+            eyebrow = self._font_meta.render("", True, (148, 158, 171))
             self.screen.blit(eyebrow, (left_x, title_y - 34))
 
             title_surf = self._font_title.render("TESSERA", True, (236, 232, 220))
             self.screen.blit(title_surf, (left_x, title_y))
 
             subtitles = {
-                MenuState.MAIN: "A quiet menu for a game about learning to perceive the next axis.",
+                MenuState.LOAD_SAVE: "Select a save to resume.",
                 MenuState.SETTINGS: "Tune the interface before you step back into the lattice.",
                 MenuState.AUDIO: "Balance the room tone, music, and synthetic voices.",
                 MenuState.GRAPHICS: "Adjust how sharply the simulation presents itself.",
                 MenuState.CONTROLS: "Shape the motion before the world begins to move back.",
             }
             subtitle = subtitles.get(self.state, "")
-            subtitle_surf = self._font_subtitle.render(subtitle, True, (181, 191, 205))
-            self.screen.blit(subtitle_surf, (left_x, title_y + 86))
+            if subtitle:
+                subtitle_surf = self._font_subtitle.render(subtitle, True, (181, 191, 205))
+                self.screen.blit(subtitle_surf, (left_x, title_y + 86))
             return
 
         # Title text
@@ -1189,6 +1391,7 @@ class FancyMainMenu:
                 btn = self.buttons[btn_id]
                 is_selected = index == self.selected_index % len(active)
                 rect = pygame.Rect(btn.x, btn.y, btn.width, btn.height)
+                slot = self._load_slot_buttons.get(btn_id)
 
                 if is_selected:
                     card = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
@@ -1206,19 +1409,36 @@ class FancyMainMenu:
 
                 number_color = (150, 158, 171) if not is_selected else (250, 232, 205)
                 text_color = (193, 199, 208) if not is_selected else (250, 242, 230)
-                prefix = self._font_meta.render(f"{index + 1:02d}", True, number_color)
-                label = self._font_button.render(btn.text.upper(), True, text_color)
+                prefix_text = self._format_slot_prefix(slot) if slot else f"{index + 1:02d}"
+                prefix = self._font_meta.render(prefix_text, True, number_color)
+
+                if slot and slot.metadata:
+                    slot_label = fit_text(self._font_button, slot.metadata.save_name.upper(), rect.width - 190)
+                    label = self._font_button.render(slot_label, True, text_color)
+                else:
+                    label = self._font_button.render(btn.text.upper(), True, text_color)
 
                 self.screen.blit(prefix, (rect.x + 18, rect.y + 13))
                 self.screen.blit(label, (rect.x + 58, rect.y + 9))
+
+                if slot and slot.metadata:
+                    meta_text = self._font_meta.render(
+                        f"{slot.metadata.current_dimension.upper()}  {slot.playtime_display}",
+                        True,
+                        (132, 144, 160) if not is_selected else (222, 210, 188),
+                    )
+                    self.screen.blit(meta_text, (rect.right - meta_text.get_width() - 18, rect.y + 13))
 
                 divider_color = (38, 46, 58) if not is_selected else (110, 98, 78)
                 pygame.draw.line(self.screen, divider_color, (rect.x + 18, rect.bottom), (rect.right - 18, rect.bottom), 1)
 
             blurb = self._menu_blurbs.get(selected_id, "")
-            if blurb:
+            if blurb and self.state != MenuState.LOAD_SAVE:
                 blurb_text = self._font_small.render(blurb, True, (162, 173, 188))
-                self.screen.blit(blurb_text, (self.buttons[active[0]].x, last_button.bottom + 28))
+                self.screen.blit(
+                    blurb_text,
+                    (self.buttons[active[0]].x, last_button.y + last_button.height + 28),
+                )
             return
 
         # Glass panel behind main buttons for cohesion
@@ -1345,9 +1565,10 @@ def run_tessera_menu() -> Optional[dict]:
     intro_sequence = None
     selected_mode = None
     intro_impulse = ""
+    selected_save_data = None
     
     def on_start(mode: str):
-        nonlocal selected_mode, running, in_intro, intro_sequence
+        nonlocal selected_mode, running, in_intro, intro_sequence, selected_save_data
         if mode == "new_game":
             # Start the dramatic intro sequence
             menu.stop_music()
@@ -1357,6 +1578,7 @@ def run_tessera_menu() -> Optional[dict]:
             in_intro = True
             selected_mode = mode  # Will be returned after intro
         else:
+            selected_save_data = menu.consume_selected_save_data()
             selected_mode = mode
             running = False
     
@@ -1399,5 +1621,5 @@ def run_tessera_menu() -> Optional[dict]:
     
     pygame.quit()
     if selected_mode:
-        return {"mode": selected_mode, "intro_impulse": intro_impulse}
+        return {"mode": selected_mode, "intro_impulse": intro_impulse, "save_data": selected_save_data}
     return None

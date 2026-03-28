@@ -81,12 +81,12 @@ class TesseraLauncher:
     
     def _on_menu_action(self, action: str) -> None:
         """Handle main menu action."""
-        if action == "campaign":
-            self._show_campaign_menu()
-        elif action == "quickplay":
-            self._start_quick_play()
-        elif action == "multiplayer":
-            self._show_multiplayer_menu()
+        if action == "new_game":
+            self._start_new_game()
+        elif action == "load_save":
+            selected_save = self.main_menu.consume_selected_save_data()
+            if selected_save:
+                self._on_load_save(selected_save)
     
     def _show_campaign_menu(self) -> None:
         """Show campaign options (new game / continue / load)."""

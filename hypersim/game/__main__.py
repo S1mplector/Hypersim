@@ -5,6 +5,10 @@ Supports both the fancy launcher and direct gameplay modes.
 """
 import pygame
 import sys
+from typing import Optional
+
+from hypersim.game.progression import ProgressionState
+from hypersim.game.save_system import GameSaveData, get_save_manager
 
 
 def main():
@@ -32,7 +36,11 @@ def main():
     
     if selected_data:
         if isinstance(selected_data, dict):
-            start_campaign(selected_data.get("mode", ""), intro_impulse=selected_data.get("intro_impulse", ""))
+            start_campaign(
+                selected_data.get("mode", ""),
+                intro_impulse=selected_data.get("intro_impulse", ""),
+                save_data=selected_data.get("save_data"),
+            )
         else:
             start_campaign(selected_data)
 
@@ -44,15 +52,14 @@ def run_launcher():
     launcher.run()
 
 
-def start_campaign(mode: str, intro_impulse: str = ""):
+def start_campaign(mode: str, intro_impulse: str = "", save_data: Optional[GameSaveData] = None):
     """Start the campaign with proper chapter system integration."""
     pygame.init()
     pygame.mixer.init()
     
     from hypersim.game.session import GameSession
     from hypersim.game.dimensions import DimensionTrack, DEFAULT_DIMENSIONS
-    from hypersim.game.progression import ProgressionState
-    from hypersim.game.save import load_progression, save_progression
+    from hypersim.game.save import load_progression
     from hypersim.game.loop import GameLoop
     from hypersim.game.story.chapters import get_campaign_manager, reset_campaign
     
@@ -65,14 +72,27 @@ def start_campaign(mode: str, intro_impulse: str = ""):
         campaign = reset_campaign()  # Fresh campaign
         print("Starting new campaign...")
     elif mode == "load_save":
-        progression = load_progression()
-        if progression is None:
-            print("No save found, starting new campaign...")
-            progression = ProgressionState()
-            campaign = reset_campaign()
-        else:
-            print("Loaded saved game!")
+        active_save = save_data
+        if active_save is None:
+            newest_save = get_save_manager().get_newest_save()
+            if newest_save:
+                _, active_save = newest_save
+
+        if active_save is not None:
+            progression = _save_to_progression(active_save)
             campaign = get_campaign_manager()
+            save_name = active_save.metadata.save_name or "Unnamed Save"
+            print(f"Loaded save: {save_name}")
+        else:
+            progression = load_progression()
+            if progression is None:
+                print("No save found, starting new campaign...")
+                progression = ProgressionState()
+                campaign = reset_campaign()
+            else:
+                print("Loaded saved game!")
+                campaign = get_campaign_manager()
+        save_data = active_save
     else:
         progression = ProgressionState()
         campaign = reset_campaign()
@@ -87,6 +107,7 @@ def start_campaign(mode: str, intro_impulse: str = ""):
     game = GameLoop(
         session=session,
         screen=screen,
+        starting_world_id=save_data.world.current_world if save_data else None,
     )
     
     # Wire up campaign callbacks
@@ -139,9 +160,58 @@ def start_campaign(mode: str, intro_impulse: str = ""):
         
         # Start chapter 1
         campaign.start_chapter("chapter_1")
+    elif mode == "load_save" and save_data is not None:
+        game.initialize_runtime()
+        _apply_save_to_game(game, save_data)
     
     # Run the game
     game.run()
+
+
+def _save_to_progression(save: GameSaveData) -> ProgressionState:
+    """Convert a slot-based save file into the progression model used by GameLoop."""
+    world_objective_progress = {}
+    for world_id, world_state in save.world.world_states.items():
+        if not isinstance(world_state, dict):
+            continue
+        objective_progress = world_state.get("objective_progress")
+        if isinstance(objective_progress, dict):
+            world_objective_progress[world_id] = objective_progress
+
+    return ProgressionState(
+        current_dimension=save.player.dimension,
+        unlocked_dimensions=save.world.unlocked_dimensions,
+        current_world_id=save.world.current_world,
+        unlocked_worlds=save.world.unlocked_worlds,
+        completed_worlds=set(save.world.completed_worlds),
+        completed_nodes=set(save.world.completed_missions),
+        xp=save.player.xp,
+        profile_name=save.metadata.save_name,
+        active_node_id=save.world.current_mission or None,
+        world_objective_progress=world_objective_progress,
+        unlocked_abilities=set(save.player.unlocked_abilities),
+        evolution_form=0,
+        evolution_xp=save.player.evolution_xp_4d,
+        evolution_forms_unlocked=[0],
+    )
+
+
+def _apply_save_to_game(game, save_data: GameSaveData) -> None:
+    """Apply save-state values that must be restored after runtime init."""
+    player = game.world.find_player()
+    if not player:
+        return
+
+    from hypersim.game.ecs.component import Transform, Health
+
+    transform = player.get(Transform)
+    if transform:
+        transform.position[:] = save_data.player.position
+
+    health = player.get(Health)
+    if health:
+        health.current = save_data.player.health
+        health.max = save_data.player.max_health
 
 
 def _play_dialogue(game, dialogue_lines, seq_id="campaign_dialogue"):

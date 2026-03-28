@@ -1,30 +1,44 @@
 {
-  "current_dimension": "3d",
+  "current_dimension": "2d",
   "unlocked_dimensions": [
     "1d",
-    "2d",
-    "3d"
+    "2d"
+  ],
+  "current_world_id": "tutorial_2d",
+  "unlocked_worlds": [
+    "tutorial_1d",
+    "tutorial_2d"
+  ],
+  "completed_worlds": [
+    "tutorial_1d"
   ],
   "completed_nodes": [],
-  "xp": 6,
+  "xp": 0,
   "profile_name": "default",
   "active_node_id": null,
   "mission_progress": {},
+  "world_objective_progress": {
+    "tutorial_1d": {
+      "collect_energy": 3.0,
+      "reach_portal": 1.0
+    },
+    "tutorial_2d": {
+      "collect_energy_2d": 1.0,
+      "reach_3d": 0.0
+    }
+  },
   "unlocked_abilities": [
-    "slice_plane",
-    "ping_neighbors",
-    "sketch_path",
     "fold_line",
-    "carry_line"
+    "ping_neighbors",
+    "sketch_path"
   ],
-  "intro_impulse": "",
+  "intro_impulse": "lean",
   "terminus_seen": false,
   "shift_tutorial_done": true,
   "outsider_cutscene_played": false,
   "shown_dimension_vignettes": [
-    "2d",
-    "3d",
-    "1d"
+    "1d",
+    "2d"
   ],
   "evolution_form": 0,
   "evolution_xp": 0,
