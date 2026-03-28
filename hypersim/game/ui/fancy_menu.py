@@ -13,6 +13,15 @@ import pygame
 import numpy as np
 
 
+def load_font(candidates: List[str], size: int, bold: bool = False, italic: bool = False) -> pygame.font.Font:
+    """Pick the first available system font from a candidate list."""
+    for name in candidates:
+        path = pygame.font.match_font(name, bold=bold, italic=italic)
+        if path:
+            return pygame.font.Font(path, size)
+    return pygame.font.Font(None, size)
+
+
 # =============================================================================
 # COSMIC BACKGROUND
 # =============================================================================
@@ -585,6 +594,9 @@ class FancyMainMenu:
         self.intro_time = 0.0
         self.intro_done = False
         self.mosaic_phase = 0.0
+        self.selection_phase = 0.0
+        self.selected_index = 0
+        self._dragging_setting: Optional[str] = None
         
         # Background
         self.cosmic_bg = CosmicBackground(self.width, self.height)
@@ -592,16 +604,39 @@ class FancyMainMenu:
             # Keep only subtle stars for a cleaner menu backdrop.
             self.cosmic_bg.grid_enabled = False
             self.cosmic_bg.stars = self.cosmic_bg.stars[:90]
+            self.cosmic_bg.shooting_star_timer = -99999.0
+            for star in self.cosmic_bg.stars:
+                star.color = random.choice([
+                    (225, 228, 232),
+                    (165, 176, 194),
+                    (218, 200, 176),
+                ])
+                star.size = min(star.size, 1.6)
+                star.brightness *= 0.8
         
         # 4D shape
         self.shape_renderer = Shape4DRenderer()
         self.show_24cell = True  # Show 24-cell instead of tesseract for variety
         
         # Fonts
-        self._font_title = pygame.font.Font(None, 96)
-        self._font_subtitle = pygame.font.Font(None, 30)
-        self._font_button = pygame.font.Font(None, 34)
-        self._font_small = pygame.font.Font(None, 24)
+        self._font_title = load_font(["didot", "baskerville", "georgia", "timesnewroman"], 96)
+        self._font_subtitle = load_font(["avenirnext", "gillsans", "helveticaneue", "arial"], 24)
+        self._font_button = load_font(["avenirnext", "gillsans", "helveticaneue", "arial"], 30)
+        self._font_small = load_font(["avenirnext", "gillsans", "helveticaneue", "arial"], 18)
+        self._font_meta = load_font(["avenirnext", "gillsans", "helveticaneue", "arial"], 16)
+        self._font_state = load_font(["avenirnext", "gillsans", "helveticaneue", "arial"], 21, bold=True)
+
+        self._menu_blurbs = {
+            "new_game": "Begin on the Line and climb toward new axes.",
+            "load_save": "Resume the last stable configuration.",
+            "settings": "Adjust sound, display, and controls.",
+            "quit": "Leave the lattice and close the simulation.",
+            "audio": "Set the balance between hush and signal.",
+            "graphics": "Choose the cleanest way to read the field.",
+            "controls": "Tune movement and perception.",
+            "back_settings": "Return to the primary menu.",
+            "back": "Return to the previous panel.",
+        }
         
         # Buttons
         self.buttons: Dict[str, AnimatedButton] = {}
@@ -627,11 +662,18 @@ class FancyMainMenu:
     
     def _init_buttons(self) -> None:
         """Initialize menu buttons."""
-        button_width = 320
-        button_height = 48
-        start_y = self.height // 2 + 10
-        spacing = 58
-        center_x = self.width // 2 - button_width // 2
+        if self.minimal_mode:
+            button_width = 360
+            button_height = 44
+            start_y = 308
+            spacing = 58
+            center_x = 96
+        else:
+            button_width = 320
+            button_height = 48
+            start_y = self.height // 2 + 10
+            spacing = 58
+            center_x = self.width // 2 - button_width // 2
         
         # Main menu buttons
         main_buttons = [
@@ -723,6 +765,8 @@ class FancyMainMenu:
     def _go_to(self, state: MenuState) -> None:
         """Navigate to a menu state."""
         self.state = state
+        self.selected_index = 0
+        self._dragging_setting = None
     
     def update(self, dt: float) -> None:
         """Update menu animations."""
@@ -749,12 +793,24 @@ class FancyMainMenu:
         mouse_pressed = pygame.mouse.get_pressed()[0]
         
         active_buttons = self._get_active_buttons()
+        hovered_index = None
         for btn_id in active_buttons:
             if btn_id in self.buttons:
-                self.buttons[btn_id].update(dt, mouse_pos, mouse_pressed)
+                btn = self.buttons[btn_id]
+                btn.update(dt, mouse_pos, mouse_pressed)
+                if pygame.Rect(btn.x, btn.y, btn.width, btn.height).collidepoint(mouse_pos):
+                    hovered_index = active_buttons.index(btn_id)
+
+        if hovered_index is not None:
+            self.selected_index = hovered_index
+        elif active_buttons:
+            self.selected_index %= len(active_buttons)
+        else:
+            self.selected_index = 0
         
         # Overlay phase for subtle motion
         self.mosaic_phase += dt * 0.35
+        self.selection_phase += dt * 2.1
     
     def _get_active_buttons(self) -> List[str]:
         """Get button IDs for current state."""
@@ -769,12 +825,32 @@ class FancyMainMenu:
     def handle_event(self, event: pygame.event.Event) -> bool:
         """Handle input events."""
         if event.type == pygame.KEYDOWN:
+            active_buttons = self._get_active_buttons()
             if event.key == pygame.K_ESCAPE:
                 if self.state == MenuState.MAIN:
                     self._quit()
                 else:
                     self._go_to(MenuState.MAIN if self.state == MenuState.SETTINGS else MenuState.SETTINGS)
                 return True
+            if active_buttons and event.key in (pygame.K_UP, pygame.K_LEFT):
+                self.selected_index = (self.selected_index - 1) % len(active_buttons)
+                return True
+            if active_buttons and event.key in (pygame.K_DOWN, pygame.K_RIGHT, pygame.K_TAB):
+                self.selected_index = (self.selected_index + 1) % len(active_buttons)
+                return True
+            if active_buttons and event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                self._activate_selected_button()
+                return True
+
+        if event.type == pygame.MOUSEMOTION:
+            active_buttons = self._get_active_buttons()
+            for index, btn_id in enumerate(active_buttons):
+                btn = self.buttons.get(btn_id)
+                if btn and pygame.Rect(btn.x, btn.y, btn.width, btn.height).collidepoint(event.pos):
+                    self.selected_index = index
+                    break
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self._dragging_setting = None
         
         # Handle settings interactions
         if self.state in (MenuState.AUDIO, MenuState.GRAPHICS, MenuState.CONTROLS):
@@ -786,6 +862,17 @@ class FancyMainMenu:
                 return True
         
         return False
+
+    def _activate_selected_button(self) -> None:
+        """Activate the currently selected button."""
+        active_buttons = self._get_active_buttons()
+        if not active_buttons:
+            return
+
+        btn_id = active_buttons[self.selected_index % len(active_buttons)]
+        button = self.buttons.get(btn_id)
+        if button and button.enabled and button.on_click:
+            button.on_click()
     
     def _handle_settings_click(self, pos: Tuple[int, int]) -> None:
         """Handle click on settings panel."""
@@ -885,7 +972,9 @@ class FancyMainMenu:
         """Draw the menu."""
         # Cosmic background
         self.cosmic_bg.draw(self.screen)
-        if not self.minimal_mode:
+        if self.minimal_mode:
+            self._draw_minimal_background()
+        else:
             self._draw_dimensional_overlay()
         
             # 4D shape in background
@@ -921,15 +1010,82 @@ class FancyMainMenu:
         self.screen.blit(version_text, (10, self.height - 25))
         
         # Controls hint
-        hint = "Click to select • ESC to go back" if self.minimal_mode else "Navigate with mouse • ESC to go back"
+        hint = "Arrows / Enter / Mouse • ESC" if self.minimal_mode else "Navigate with mouse • ESC to go back"
         hint_text = self._font_small.render(hint, True, (130, 145, 165))
         hint_rect = hint_text.get_rect(center=(self.width // 2, self.height - 20))
         self.screen.blit(hint_text, hint_rect)
+
+    def _draw_minimal_background(self) -> None:
+        """Draw the stripped-back menu framing and right-side geometry panel."""
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+
+        left_panel = pygame.Rect(58, 54, 470, self.height - 108)
+        pygame.draw.rect(overlay, (8, 11, 18, 210), left_panel, border_radius=26)
+        pygame.draw.rect(overlay, (72, 82, 94, 85), left_panel, width=1, border_radius=26)
+        pygame.draw.line(
+            overlay,
+            (214, 182, 132, 210),
+            (left_panel.x + 32, left_panel.y + 30),
+            (left_panel.x + 180, left_panel.y + 30),
+            2,
+        )
+
+        right_panel = pygame.Rect(self.width - 430, 76, 330, self.height - 152)
+        pygame.draw.rect(overlay, (10, 14, 22, 165), right_panel, border_radius=24)
+        pygame.draw.rect(overlay, (78, 92, 108, 70), right_panel, width=1, border_radius=24)
+
+        for y in range(self.height):
+            alpha = int(46 * (1 - y / max(1, self.height - 1)))
+            overlay.fill((18, 24, 38, alpha), rect=pygame.Rect(0, y, self.width, 1))
+
+        self.screen.blit(overlay, (0, 0))
+
+        shape_center = (right_panel.centerx, right_panel.y + 210)
+        self.shape_renderer.draw_24cell(
+            self.screen,
+            shape_center,
+            scale=105,
+            color=(105, 126, 156),
+        )
+
+        note_title = self._font_state.render("Field Notes", True, (224, 228, 233))
+        self.screen.blit(note_title, (right_panel.x + 26, right_panel.bottom - 128))
+
+        notes = [
+            "Perception is learned one axis at a time.",
+            "Every new dimension simplifies one old problem",
+            "and creates a stranger one.",
+        ]
+        note_y = right_panel.bottom - 96
+        for line in notes:
+            text = self._font_small.render(line, True, (160, 171, 186))
+            self.screen.blit(text, (right_panel.x + 26, note_y))
+            note_y += 22
     
     def _draw_title(self) -> None:
         """Draw the game title."""
-        title_y = 110 + int(self.title_offset)
-        
+        title_y = 112 + int(self.title_offset)
+
+        if self.minimal_mode:
+            left_x = 96
+            eyebrow = self._font_meta.render("DIMENSIONAL ADVENTURE", True, (148, 158, 171))
+            self.screen.blit(eyebrow, (left_x, title_y - 34))
+
+            title_surf = self._font_title.render("TESSERA", True, (236, 232, 220))
+            self.screen.blit(title_surf, (left_x, title_y))
+
+            subtitles = {
+                MenuState.MAIN: "A quiet menu for a game about learning to perceive the next axis.",
+                MenuState.SETTINGS: "Tune the interface before you step back into the lattice.",
+                MenuState.AUDIO: "Balance the room tone, music, and synthetic voices.",
+                MenuState.GRAPHICS: "Adjust how sharply the simulation presents itself.",
+                MenuState.CONTROLS: "Shape the motion before the world begins to move back.",
+            }
+            subtitle = subtitles.get(self.state, "")
+            subtitle_surf = self._font_subtitle.render(subtitle, True, (181, 191, 205))
+            self.screen.blit(subtitle_surf, (left_x, title_y + 86))
+            return
+
         # Title text
         title_color = (236, 232, 220)
         title_surf = self._font_title.render("TESSERA", True, title_color)
@@ -1012,6 +1168,59 @@ class FancyMainMenu:
     def _draw_buttons(self) -> None:
         """Draw active buttons."""
         active = self._get_active_buttons()
+        if self.minimal_mode:
+            if not active:
+                return
+
+            pulse = 0.55 + 0.45 * math.sin(self.selection_phase)
+            selected_id = active[self.selected_index % len(active)]
+            accent_x = self.buttons[selected_id].x - 18
+            first_y = self.buttons[active[0]].y
+            last_button = self.buttons[active[-1]]
+            pygame.draw.line(
+                self.screen,
+                (88, 99, 114),
+                (accent_x, first_y),
+                (accent_x, last_button.y + last_button.height),
+                1,
+            )
+
+            for index, btn_id in enumerate(active):
+                btn = self.buttons[btn_id]
+                is_selected = index == self.selected_index % len(active)
+                rect = pygame.Rect(btn.x, btn.y, btn.width, btn.height)
+
+                if is_selected:
+                    card = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+                    highlight_alpha = int(42 + 24 * pulse)
+                    pygame.draw.rect(card, (206, 174, 124, highlight_alpha), card.get_rect(), border_radius=14)
+                    pygame.draw.rect(card, (218, 196, 156, 110), card.get_rect(), width=1, border_radius=14)
+                    self.screen.blit(card, rect.topleft)
+                    pygame.draw.line(
+                        self.screen,
+                        (234, 214, 178),
+                        (rect.x - 18, rect.y + 4),
+                        (rect.x - 18, rect.bottom - 4),
+                        3,
+                    )
+
+                number_color = (150, 158, 171) if not is_selected else (250, 232, 205)
+                text_color = (193, 199, 208) if not is_selected else (250, 242, 230)
+                prefix = self._font_meta.render(f"{index + 1:02d}", True, number_color)
+                label = self._font_button.render(btn.text.upper(), True, text_color)
+
+                self.screen.blit(prefix, (rect.x + 18, rect.y + 13))
+                self.screen.blit(label, (rect.x + 58, rect.y + 9))
+
+                divider_color = (38, 46, 58) if not is_selected else (110, 98, 78)
+                pygame.draw.line(self.screen, divider_color, (rect.x + 18, rect.bottom), (rect.right - 18, rect.bottom), 1)
+
+            blurb = self._menu_blurbs.get(selected_id, "")
+            if blurb:
+                blurb_text = self._font_small.render(blurb, True, (162, 173, 188))
+                self.screen.blit(blurb_text, (self.buttons[active[0]].x, last_button.bottom + 28))
+            return
+
         # Glass panel behind main buttons for cohesion
         if self.state == MenuState.MAIN and active and not self.minimal_mode:
             panel_width = 360
@@ -1032,11 +1241,16 @@ class FancyMainMenu:
         panel_y = self.height // 2 - 100
         panel_width = 400
         panel_height = 250
-        
-        # Panel background with subtle gold edge
+
         panel_surf = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
-        pygame.draw.rect(panel_surf, (10, 12, 22, 215), (0, 0, panel_width, panel_height), border_radius=12)
-        pygame.draw.rect(panel_surf, (255, 190, 110, 90), (0, 0, panel_width, panel_height), width=2, border_radius=12)
+        if self.minimal_mode:
+            pygame.draw.rect(panel_surf, (10, 14, 22, 228), (0, 0, panel_width, panel_height), border_radius=18)
+            pygame.draw.rect(panel_surf, (82, 92, 108, 90), (0, 0, panel_width, panel_height), width=1, border_radius=18)
+            pygame.draw.line(panel_surf, (208, 181, 136, 180), (24, 26), (108, 26), 2)
+        else:
+            # Panel background with subtle gold edge
+            pygame.draw.rect(panel_surf, (10, 12, 22, 215), (0, 0, panel_width, panel_height), border_radius=12)
+            pygame.draw.rect(panel_surf, (255, 190, 110, 90), (0, 0, panel_width, panel_height), width=2, border_radius=12)
         self.screen.blit(panel_surf, (panel_x, panel_y))
         
         # Title
@@ -1059,9 +1273,13 @@ class FancyMainMenu:
                 ("Mouse Sensitivity", "mouse_sensitivity"),
             ]
         
-        title_surf = self._font_button.render(title, True, (235, 225, 210))
-        title_rect = title_surf.get_rect(center=(self.width // 2, panel_y + 25))
-        self.screen.blit(title_surf, title_rect)
+        if self.minimal_mode:
+            title_surf = self._font_state.render(title.upper(), True, (236, 232, 220))
+            self.screen.blit(title_surf, (panel_x + 24, panel_y + 14))
+        else:
+            title_surf = self._font_button.render(title, True, (235, 225, 210))
+            title_rect = title_surf.get_rect(center=(self.width // 2, panel_y + 25))
+            self.screen.blit(title_surf, title_rect)
         
         # Settings
         y = panel_y + 60
@@ -1072,7 +1290,8 @@ class FancyMainMenu:
     def _draw_setting_row(self, x: int, y: int, width: int, label: str, key: str) -> None:
         """Draw a single setting row."""
         # Label
-        label_surf = self._font_small.render(label, True, (230, 225, 215))
+        label_color = (214, 220, 228) if self.minimal_mode else (230, 225, 215)
+        label_surf = self._font_small.render(label, True, label_color)
         self.screen.blit(label_surf, (x, y))
         
         value = self.settings.get(key, 0)
@@ -1080,7 +1299,10 @@ class FancyMainMenu:
         if isinstance(value, bool):
             # Toggle
             toggle_x = x + width - 60
-            toggle_color = (120, 200, 140) if value else (70, 80, 100)
+            if self.minimal_mode:
+                toggle_color = (192, 167, 128) if value else (54, 63, 78)
+            else:
+                toggle_color = (120, 200, 140) if value else (70, 80, 100)
             pygame.draw.rect(self.screen, toggle_color, (toggle_x, y, 50, 24), border_radius=12)
             circle_x = toggle_x + 37 if value else toggle_x + 13
             pygame.draw.circle(self.screen, (240, 235, 230), (circle_x, y + 12), 8)
@@ -1088,13 +1310,16 @@ class FancyMainMenu:
             # Slider
             slider_x = x + width - 160
             slider_width = 150
-            pygame.draw.rect(self.screen, (26, 32, 46), (slider_x, y + 8, slider_width, 8), border_radius=4)
+            track_color = (34, 42, 54) if self.minimal_mode else (26, 32, 46)
+            fill_color = (210, 182, 134) if self.minimal_mode else (255, 180, 90)
+            pygame.draw.rect(self.screen, track_color, (slider_x, y + 8, slider_width, 8), border_radius=4)
             fill_width = int(slider_width * value)
-            pygame.draw.rect(self.screen, (255, 180, 90), (slider_x, y + 8, fill_width, 8), border_radius=4)
+            pygame.draw.rect(self.screen, fill_color, (slider_x, y + 8, fill_width, 8), border_radius=4)
             pygame.draw.circle(self.screen, (240, 235, 230), (slider_x + fill_width, y + 12), 8)
             
             # Value text
-            value_text = self._font_small.render(f"{int(value * 100)}%", True, (190, 200, 210))
+            value_color = (164, 174, 188) if self.minimal_mode else (190, 200, 210)
+            value_text = self._font_small.render(f"{int(value * 100)}%", True, value_color)
             self.screen.blit(value_text, (slider_x + slider_width + 10, y))
 
 

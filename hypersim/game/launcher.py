@@ -1,18 +1,16 @@
 """Tessera Game Launcher - Wires everything together."""
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Optional
 from enum import Enum, auto
 
 import pygame
 
 from hypersim.game.ui.splash_screen import create_tessera_splash_sequence
-from hypersim.game.ui.fancy_menu import FancyMainMenu, MenuState
+from hypersim.game.ui.fancy_menu import FancyMainMenu
 from hypersim.game.ui.save_load_menu import SaveLoadMenu, SaveLoadMode
 from hypersim.game.ui.pause_menu import PauseMenu
-from hypersim.game.save_system import SaveManager, GameSaveData, get_save_manager
+from hypersim.game.save_system import GameSaveData, get_save_manager
 from hypersim.game.loop import GameLoop
 from hypersim.game.session import GameSession
 from hypersim.game.progression import ProgressionState
@@ -113,6 +111,8 @@ class TesseraLauncher:
         self.current_save = self.save_manager.create_new_game()
         self.current_save.player.dimension = "2d"  # Start in 2D for quick action
         self.current_save.world.unlocked_dimensions = ["1d", "2d"]
+        self.current_save.world.current_world = "tutorial_2d"
+        self.current_save.world.unlocked_worlds = ["tutorial_1d", "tutorial_2d"]
         self._launch_game()
     
     def _show_multiplayer_menu(self) -> None:
@@ -177,9 +177,22 @@ class TesseraLauncher:
                 self.current_save.player.health = health.current
                 self.current_save.player.max_health = health.max
         
+        progression = self.game_loop.session.progression
         self.current_save.player.dimension = self.game_loop.session.active_dimension.id
-        self.current_save.player.xp = self.game_loop.session.progression.xp
+        self.current_save.player.xp = progression.xp
         self.current_save.player.level = self.current_save.player.xp // 100 + 1
+        self.current_save.player.unlocked_abilities = sorted(progression.unlocked_abilities)
+        self.current_save.player.evolution_xp_4d = progression.evolution_xp
+        self.current_save.world.current_world = self.game_loop.current_world_id or progression.current_world_id
+        self.current_save.world.current_mission = progression.active_node_id or ""
+        self.current_save.world.unlocked_dimensions = list(progression.unlocked_dimensions)
+        self.current_save.world.unlocked_worlds = list(progression.unlocked_worlds)
+        self.current_save.world.completed_missions = list(progression.completed_nodes)
+        self.current_save.world.completed_worlds = list(progression.completed_worlds)
+        self.current_save.world.world_states = {
+            world_id: {"objective_progress": dict(snapshot)}
+            for world_id, snapshot in progression.world_objective_progress.items()
+        }
     
     def _launch_game(self) -> None:
         """Launch the game with current save data."""
@@ -197,8 +210,10 @@ class TesseraLauncher:
         self.game_loop = GameLoop(
             screen=self.screen,
             session=session,
+            starting_world_id=self.current_save.world.current_world,
         )
-        
+        self.game_loop.initialize_runtime()
+
         # Set player position from save
         self._apply_save_to_game()
         
@@ -206,12 +221,25 @@ class TesseraLauncher:
     
     def _save_to_progression(self, save: GameSaveData) -> ProgressionState:
         """Convert save data to progression state."""
+        world_objective_progress = {}
+        for world_id, world_state in save.world.world_states.items():
+            if not isinstance(world_state, dict):
+                continue
+            objective_progress = world_state.get("objective_progress")
+            if isinstance(objective_progress, dict):
+                world_objective_progress[world_id] = objective_progress
+
         return ProgressionState(
             current_dimension=save.player.dimension,
             unlocked_dimensions=save.world.unlocked_dimensions,
+            current_world_id=save.world.current_world,
+            unlocked_worlds=save.world.unlocked_worlds,
+            completed_worlds=set(save.world.completed_worlds),
             completed_nodes=set(save.world.completed_missions),
             xp=save.player.xp,
             profile_name=save.metadata.save_name,
+            active_node_id=save.world.current_mission or None,
+            world_objective_progress=world_objective_progress,
             unlocked_abilities=set(save.player.unlocked_abilities),
             evolution_form=0,  # Will be set from dimension-specific evolution
             evolution_xp=save.player.evolution_xp_4d,
@@ -240,24 +268,7 @@ class TesseraLauncher:
         """Save current game state."""
         if not self.game_loop or not self.current_save:
             return
-        
-        # Update save from game state
-        player = self.game_loop.world.find_player()
-        if player:
-            from hypersim.game.ecs.component import Transform, Health
-            transform = player.get(Transform)
-            if transform:
-                self.current_save.player.position = transform.position.tolist()
-            
-            health = player.get(Health)
-            if health:
-                self.current_save.player.health = health.current
-                self.current_save.player.max_health = health.max
-        
-        # Update dimension and progression
-        self.current_save.player.dimension = self.game_loop.session.active_dimension.id
-        self.current_save.player.level = self.game_loop.session.progression.xp // 100 + 1
-        self.current_save.player.xp = self.game_loop.session.progression.xp
+        self._update_save_from_game()
         
         # Show save menu
         self.save_load_menu.show(SaveLoadMode.SAVE, self.current_save)
@@ -267,6 +278,7 @@ class TesseraLauncher:
         """Return to main menu from game."""
         # Auto-save before returning
         if self.current_save:
+            self._update_save_from_game()
             self.save_manager.auto_save(self.current_save, force=True)
         
         self.game_loop = None
@@ -277,6 +289,7 @@ class TesseraLauncher:
         """Quit the game."""
         # Auto-save if in game
         if self.state == LauncherState.IN_GAME and self.current_save:
+            self._update_save_from_game()
             self.save_manager.auto_save(self.current_save, force=True)
         
         self.running = False
@@ -299,6 +312,9 @@ class TesseraLauncher:
             
             # Render
             self._render()
+
+            if self.game_loop:
+                self.game_loop.end_frame()
             
             pygame.display.flip()
         
@@ -349,7 +365,7 @@ class TesseraLauncher:
             
             # Pass to game loop
             if self.game_loop:
-                self.game_loop._input.process_event(event)
+                self.game_loop.handle_event(event)
     
     def _update(self, dt: float) -> None:
         """Update based on current state."""
@@ -374,6 +390,7 @@ class TesseraLauncher:
                 
                 # Check for auto-save
                 if self.current_save:
+                    self._update_save_from_game()
                     self.save_manager.check_auto_save(self.current_save)
     
     def _render(self) -> None:

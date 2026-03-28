@@ -13,11 +13,15 @@ class ProgressionState:
 
     current_dimension: str = "1d"
     unlocked_dimensions: List[str] = field(default_factory=lambda: ["1d"])
+    current_world_id: str = "tutorial_1d"
+    unlocked_worlds: List[str] = field(default_factory=lambda: ["tutorial_1d"])
+    completed_worlds: Set[str] = field(default_factory=set)
     completed_nodes: Set[str] = field(default_factory=set)
     xp: int = 0
     profile_name: str = "default"
     active_node_id: Optional[str] = None
     mission_progress: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    world_objective_progress: Dict[str, Dict[str, float]] = field(default_factory=dict)
     unlocked_abilities: Set[str] = field(default_factory=set)
     intro_impulse: str = ""              # Chosen impulse from intro (lean/listen/hesitate)
     terminus_seen: bool = False          # Whether the 1D Terminus cutscene was seen
@@ -33,6 +37,8 @@ class ProgressionState:
     def __post_init__(self) -> None:
         if self.current_dimension not in self.unlocked_dimensions:
             self.unlocked_dimensions.append(self.current_dimension)
+        if self.current_world_id and self.current_world_id not in self.unlocked_worlds:
+            self.unlocked_worlds.append(self.current_world_id)
 
     def is_unlocked(self, dimension_id: str) -> bool:
         return dimension_id in self.unlocked_dimensions
@@ -45,6 +51,23 @@ class ProgressionState:
         if not self.is_unlocked(dimension_id):
             self.unlock_dimension(dimension_id)
         self.current_dimension = dimension_id
+
+    def is_world_unlocked(self, world_id: str) -> bool:
+        return world_id in self.unlocked_worlds
+
+    def unlock_world(self, world_id: str) -> None:
+        if world_id not in self.unlocked_worlds:
+            self.unlocked_worlds.append(world_id)
+
+    def advance_to_world(self, world_id: str) -> None:
+        if world_id:
+            self.unlock_world(world_id)
+            self.current_world_id = world_id
+
+    def record_world_completion(self, world_id: str) -> bool:
+        already_completed = world_id in self.completed_worlds
+        self.completed_worlds.add(world_id)
+        return not already_completed
 
     def record_completion(self, node_id: str) -> None:
         self.completed_nodes.add(node_id)

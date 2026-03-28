@@ -25,6 +25,12 @@ from hypersim.game.rendering.volume_renderer import VolumeRenderer
 from hypersim.game.rendering.hyper_renderer import HyperRenderer
 from hypersim.game.controllers.volume_controller import VolumeController
 from hypersim.game.controllers.hyper_controller import HyperController
+from hypersim.game.objectives import ObjectiveState
+
+try:
+    from hypersim.game.content import WorldLoader
+except ImportError:
+    WorldLoader = None
 
 # New integrated systems
 from hypersim.game.ui.textbox import DialogueSystem, DialogueLine, TextBoxStyle, create_campaign_dialogues
@@ -57,6 +63,7 @@ from hypersim.game.story.narrative import StoryManager, StoryRoute, StoryChapter
 from hypersim.game.story.cinematics import FirstPointCinematic
 
 if TYPE_CHECKING:
+    from hypersim.game.content import WorldDefinition
     from hypersim.game.session import GameSession
 
 
@@ -70,6 +77,7 @@ class GameLoop:
         height: int = 768,
         title: str = "HyperSim",
         screen: Optional[pygame.Surface] = None,
+        starting_world_id: Optional[str] = None,
     ):
         self.session = session
         self.title = title
@@ -138,6 +146,20 @@ class GameLoop:
         self.running = False
         self.paused = False
         self.target_fps = 60
+        self._runtime_initialized = False
+
+        # Authored content/world state
+        self._world_loader = WorldLoader() if WorldLoader else None
+        self._default_world_ids = {
+            "1d": "tutorial_1d",
+            "2d": "tutorial_2d",
+            "3d": "tutorial_3d",
+            "4d": "tutorial_4d",
+        }
+        self.current_world_id = starting_world_id or session.progression.current_world_id or ""
+        self._current_world_def: Optional["WorldDefinition"] = None
+        self._world_objectives: List[ObjectiveState] = []
+        self._pending_spawn_position: Optional[np.ndarray] = None
         
         # === NEW INTEGRATED SYSTEMS ===
         
@@ -274,7 +296,7 @@ class GameLoop:
                     player_transform.position[:2] - entity_transform.position[:2]
                 )
                 if dist < 2.0:
-                    self._use_portal(portal)
+                    self._use_portal_entity(entity, portal)
                     break
         
         self.world.on_event("collision", on_collision)
@@ -295,6 +317,7 @@ class GameLoop:
         pickup_entity.active = False
         
         self.session.record_event("collect", item=pickup.item_type, count=pickup.value)
+        self._record_world_event("collect", item=pickup.item_type, count=pickup.value)
         self.world.emit("pickup_collected", item=pickup.item_type, entity_id=pickup_entity.id)
         
         # Grant evolution XP in 4D
@@ -312,10 +335,180 @@ class GameLoop:
     
     def _use_portal(self, portal: Portal) -> None:
         """Handle player entering a portal."""
-        if portal.target_dimension:
-            # Dimension transition
-            self.session.set_dimension(portal.target_dimension)
+        self._use_portal_entity(None, portal)
+
+    def _use_portal_entity(self, portal_entity: Optional[Entity], portal: Portal) -> None:
+        """Handle player entering a portal entity."""
+        target_world_id = portal.target_world or ""
+        target_dimension = portal.target_dimension or ""
+
+        if target_world_id and not target_dimension and self._world_loader:
+            try:
+                target_dimension = self._world_loader.load(target_world_id).dimension
+            except FileNotFoundError:
+                target_dimension = ""
+
+        if not target_world_id and target_dimension:
+            target_world_id = self._get_default_world_id(target_dimension)
+
+        if portal_entity is not None:
+            self._record_world_event("interact", target=self._get_interaction_target(portal_entity))
+
+        if target_dimension:
+            self._record_world_event("dimension_changed", dimension_id=target_dimension)
+
+        if target_world_id:
+            self.current_world_id = target_world_id
+            self.session.progression.advance_to_world(target_world_id)
+
+        if portal.target_position is not None:
+            self._pending_spawn_position = np.asarray(portal.target_position, dtype=np.float64).copy()
+
+        if target_dimension:
+            if target_dimension != self.session.active_dimension.id:
+                self.session.set_dimension(target_dimension)
             self._reload_dimension()
+
+    def _get_default_world_id(self, dimension_id: str) -> str:
+        """Return the authored tutorial world for a dimension."""
+        return self._default_world_ids.get(dimension_id, "")
+
+    def _resolve_world_id_for_dimension(self, dimension_id: str) -> str:
+        """Choose the best world id for the current dimension."""
+        candidate = self.current_world_id or self.session.progression.current_world_id
+        if candidate and self._world_loader:
+            try:
+                world_def = self._world_loader.load(candidate)
+            except FileNotFoundError:
+                pass
+            else:
+                if world_def.dimension == dimension_id:
+                    return world_def.id
+        return self._get_default_world_id(dimension_id)
+
+    def _clear_dimension_bounds(self, dimension_id: str) -> None:
+        """Clear any previously configured bounds for a dimension."""
+        prefix = f"{dimension_id}_"
+        for key in [key for key in self.physics_system.bounds if key.startswith(prefix)]:
+            del self.physics_system.bounds[key]
+
+    def _apply_world_bounds(self, world_def: "WorldDefinition") -> None:
+        """Apply authored bounds to the physics system."""
+        axis_map = {"x": 0, "y": 1, "z": 2, "w": 3}
+        self._clear_dimension_bounds(world_def.dimension)
+        for axis_name, bounds in world_def.bounds.items():
+            axis_index = axis_map.get(axis_name)
+            if axis_index is None:
+                continue
+            self.physics_system.set_bounds(world_def.dimension, axis_index, bounds[0], bounds[1])
+
+    def _load_world_objectives(self, world_def: "WorldDefinition") -> None:
+        """Restore authored objective progress for the active world."""
+        snapshot = self.session.progression.world_objective_progress.get(world_def.id, {})
+        self._world_objectives = []
+
+        for spec in world_def.objectives:
+            progress = min(spec.target, float(snapshot.get(spec.id, 0.0)))
+            self._world_objectives.append(
+                ObjectiveState(
+                    spec=spec,
+                    progress=progress,
+                    completed=progress >= spec.target,
+                )
+            )
+
+        if self._world_objectives and all(state.completed for state in self._world_objectives):
+            self.session.progression.record_world_completion(world_def.id)
+            if world_def.next_world:
+                self.session.progression.unlock_world(world_def.next_world)
+
+    def _persist_world_objectives(self) -> None:
+        """Persist current world objective progress into progression state."""
+        if not self.current_world_id or not self._world_objectives:
+            return
+        self.session.progression.world_objective_progress[self.current_world_id] = {
+            state.spec.id: state.progress for state in self._world_objectives
+        }
+
+    def _record_world_event(self, event_type: str, **data) -> None:
+        """Apply a gameplay event to the current authored world objectives."""
+        if not self._world_objectives:
+            return
+
+        changed = False
+        completed_labels: List[str] = []
+        for state in self._world_objectives:
+            was_completed = state.completed
+            if state.apply_event(event_type, data):
+                changed = True
+                if not was_completed and state.completed:
+                    completed_labels.append(state.spec.description or state.spec.id.replace("_", " ").title())
+
+        if not changed:
+            return
+
+        self._persist_world_objectives()
+
+        for label in completed_labels:
+            self.overlays.notify(f"Objective complete: {label}", duration=2.4, color=(140, 220, 170))
+
+        if self._current_world_def and all(state.completed for state in self._world_objectives):
+            if self._current_world_def.next_world:
+                self.session.progression.unlock_world(self._current_world_def.next_world)
+            if self.session.progression.record_world_completion(self._current_world_def.id):
+                self.overlays.notify(
+                    f"World complete: {self._current_world_def.name}",
+                    duration=3.0,
+                    color=(120, 220, 170),
+                )
+
+    def _apply_pending_spawn_position(self) -> None:
+        """Move the spawned player to a portal-defined destination if set."""
+        if self._pending_spawn_position is None:
+            return
+
+        player = self.world.find_player()
+        if player:
+            transform = player.get(Transform)
+            if transform:
+                count = min(len(transform.position), len(self._pending_spawn_position))
+                transform.position[:count] = self._pending_spawn_position[:count]
+
+        self._pending_spawn_position = None
+
+    def _get_interaction_target(self, entity: Entity) -> str:
+        """Resolve a stable target id for authored interaction objectives."""
+        ignored_tags = {"portal", "npc", "interactable", "friendly", "trigger"}
+        named_tags = sorted(tag for tag in entity.tags if tag not in ignored_tags)
+        if named_tags:
+            return named_tags[0]
+        return entity.id
+
+    def _load_authored_world(self, dimension_id: str) -> bool:
+        """Load the authored world for the active dimension if available."""
+        if not self._world_loader:
+            return False
+
+        world_id = self._resolve_world_id_for_dimension(dimension_id)
+        if not world_id:
+            return False
+
+        try:
+            world_def = self._world_loader.load(world_id)
+        except FileNotFoundError:
+            return False
+
+        if world_def.dimension != dimension_id:
+            return False
+
+        self._apply_world_bounds(world_def)
+        self._current_world_def = world_def
+        self.current_world_id = world_def.id
+        self.session.progression.advance_to_world(world_def.id)
+        self._world_loader.spawn_world(world_def, self.world)
+        self._load_world_objectives(world_def)
+        self._apply_pending_spawn_position()
+        return True
     
     def _reload_dimension(self) -> None:
         """Reload the world for the current dimension."""
@@ -324,7 +517,18 @@ class GameLoop:
         
         # Spawn player and entities for new dimension
         dim_id = self.session.active_dimension.id
-        self._spawn_default_level(dim_id)
+        self._steps_in_realm = 0
+        self._current_realm_id = None
+        self._current_world_def = None
+        self._world_objectives = []
+
+        if not self._load_authored_world(dim_id):
+            fallback_world_id = self._get_default_world_id(dim_id)
+            if fallback_world_id:
+                self.current_world_id = fallback_world_id
+                self.session.progression.advance_to_world(fallback_world_id)
+            self._spawn_default_level(dim_id)
+            self._apply_pending_spawn_position()
         
         # Update input system
         self.input_system.set_dimension(dim_id)
@@ -477,7 +681,16 @@ class GameLoop:
     def _handle_terminus_ascend(self) -> None:
         """Handle immediate ascension from the Terminus cutscene."""
         self.dialogue.stop()
-        # Ascend to next dimension and reload
+        next_dim = self.session.dimensions.next(self.session.active_dimension.id)
+        if not next_dim:
+            return
+
+        self._record_world_event("dimension_changed", dimension_id=next_dim.id)
+        next_world_id = self._get_default_world_id(next_dim.id)
+        if next_world_id:
+            self.current_world_id = next_world_id
+            self.session.progression.advance_to_world(next_world_id)
+
         if self.session.ascend():
             self._reload_dimension()
 
@@ -549,6 +762,8 @@ class GameLoop:
             return
         if self.dimensional_combat and self.dimensional_combat.in_combat:
             return
+
+        self._record_world_event("interact", target=self._get_interaction_target(npc_entity))
         
         # Handle The First Point specifically
         if npc_entity.has_tag("the_first_point"):
@@ -1103,84 +1318,53 @@ class GameLoop:
         # Update controllers
         self._volume_controller.mouse_captured = capture
         self._hyper_controller.mouse_captured = capture
-    
-    def run(self) -> None:
-        """Run the main game loop."""
-        self.running = True
-        
+
+    def initialize_runtime(self) -> None:
+        """Initialize runtime systems shared by direct run and launcher mode."""
+        if self._runtime_initialized:
+            return
+
         # Initialize old combat system (fallback)
         self.combat = create_combat_integration(self.screen, self.session)
         self.combat.on_combat_end = self._on_combat_end
         self.combat.on_boss_defeated = self._on_boss_defeated
-        
+
         # Initialize NEW dimensional combat system
         self.dimensional_combat = create_dimensional_combat_integration(self.screen, self.session)
         self.dimensional_combat.on_combat_end = self._on_combat_end
         self.dimensional_combat.on_boss_defeated = self._on_boss_defeated
         self.dimensional_combat.on_dimension_unlock = self._on_dimension_unlock
-        
+
         # Initialize story encounter manager
         self.story_encounters = get_encounter_manager()
-        
+
         # Initialize first dimension
         self._reload_dimension()
-        
+
         # Play initial campaign dialogue if set
         if self._initial_dialogue_id and not self._initial_dialogue_played:
             self._initial_dialogue_played = True
             self.dialogue.start_sequence(self._initial_dialogue_id)
+
+        self._runtime_initialized = True
+    
+    def run(self) -> None:
+        """Run the main game loop."""
+        self.running = True
+        self.initialize_runtime()
         
         while self.running:
             dt = self.clock.tick(self.target_fps) / 1000.0
             
             # Process events
             self._process_events()
-            
-            # Check if dialogue, combat, cinematic, or overlay should pause game
-            dialogue_active = self.dialogue.should_pause_game
-            cinematic_active = self.first_point_cinematic.is_active
-            
-            # Check both combat systems
-            old_combat_active = self.combat and (self.combat.in_combat or self.combat.transitioning)
-            dim_combat_active = self.dimensional_combat and (self.dimensional_combat.in_combat or self.dimensional_combat.transitioning)
-            combat_active = old_combat_active or dim_combat_active
-            
-            # Update cinematic if active
-            if cinematic_active:
-                self.first_point_cinematic.update(dt)
-            
-            if dim_combat_active:
-                # Update NEW dimensional combat system
-                self.dimensional_combat.update(dt)
-            elif old_combat_active:
-                # Update old combat system (fallback)
-                self.combat.update(dt)
-            elif not self.paused and not dialogue_active:
-                # Update systems
-                self.world.update(dt)
-                self._update_1d_world_beats()
-                
-                # Process game events for session/objectives
-                for event in self.world.drain_events():
-                    self.session.record_event(event.event_type, **event.data)
-                
-                # Check for random encounters
-                self._check_random_encounter()
-            
-            # Update dialogue and overlays (always)
-            self.dialogue.update(dt)
-            self.overlays.update(dt)
-            
-            # Check for queued dialogues when current one finishes
-            if not self.dialogue.is_active and self._queued_dialogues:
-                next_dialogue = self._queued_dialogues.pop(0)
-                self.dialogue.start_sequence(next_dialogue)
+            self._update(dt)
             
             # Render
             self._render()
             
             # End frame
-            self.input_handler.end_frame()
+            self.end_frame()
             pygame.display.flip()
         
         # Save progression on exit
@@ -1188,6 +1372,46 @@ class GameLoop:
         save_progression(self.session.progression)
         
         pygame.quit()
+
+    def _update(self, dt: float) -> None:
+        """Advance the game by a single frame."""
+        self.initialize_runtime()
+
+        # Keep mouse-look responsive in both standalone and launcher modes.
+        if self._mouse_captured and not self.paused and not self.dialogue.is_active:
+            self._volume_controller.process_mouse(self.input_handler)
+            self._hyper_controller.process_mouse(self.input_handler)
+
+        dialogue_active = self.dialogue.should_pause_game
+        cinematic_active = self.first_point_cinematic.is_active
+        old_combat_active = self.combat and (self.combat.in_combat or self.combat.transitioning)
+        dim_combat_active = self.dimensional_combat and (
+            self.dimensional_combat.in_combat or self.dimensional_combat.transitioning
+        )
+
+        if cinematic_active:
+            self.first_point_cinematic.update(dt)
+
+        if dim_combat_active:
+            self.dimensional_combat.update(dt)
+        elif old_combat_active:
+            self.combat.update(dt)
+        elif not self.paused and not dialogue_active:
+            self.world.update(dt)
+            self._update_1d_world_beats()
+
+            for event in self.world.drain_events():
+                self.session.record_event(event.event_type, **event.data)
+                self._record_world_event(event.event_type, **event.data)
+
+            self._check_random_encounter()
+
+        self.dialogue.update(dt)
+        self.overlays.update(dt)
+
+        if not self.dialogue.is_active and self._queued_dialogues:
+            next_dialogue = self._queued_dialogues.pop(0)
+            self.dialogue.start_sequence(next_dialogue)
     
     def _check_random_encounter(self) -> None:
         """Check for random combat encounters based on player movement."""
@@ -1631,65 +1855,65 @@ class GameLoop:
     def _process_events(self) -> None:
         """Process pygame events."""
         for event in pygame.event.get():
-            # Let dimensional combat system handle input first if active
-            if self.dimensional_combat and self.dimensional_combat.in_combat:
-                if self.dimensional_combat.handle_input(event):
-                    continue
-            
-            # Let old combat system handle input if active
-            if self.combat and self.combat.in_combat:
-                if self.combat.handle_input(event):
-                    continue
-            
-            # Let dialogue system handle input
-            if self.dialogue.handle_input(event):
-                continue
-            
-            # Let overlay manager handle input
-            if self.overlays.handle_event(event):
-                continue
-            
-            if event.type == pygame.QUIT:
-                self.running = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    if self.dialogue.is_active:
-                        # Close dialogue first
-                        self.dialogue.stop()
-                    elif self._mouse_captured:
-                        # Release mouse first
-                        self._set_mouse_capture(False)
-                    else:
-                        self.running = False
-                elif event.key == pygame.K_p:
-                    if not self.dialogue.is_active:
-                        self.paused = not self.paused
-                elif event.key == pygame.K_r:
-                    # Reload level
-                    if not self.dialogue.is_active:
-                        self._reload_dimension()
-                elif event.key == pygame.K_TAB:
-                    # Toggle mouse capture in 3D/4D
-                    dim = self.session.active_dimension.id
-                    if dim in ("3d", "4d") and not self.dialogue.is_active:
-                        self._set_mouse_capture(not self._mouse_captured)
-                elif event.key == pygame.K_v:
-                    # Try to evolve (in 4D)
-                    if self.session.active_dimension.id == "4d":
-                        self._try_evolve()
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                # Click to capture mouse in 3D/4D
+            self.handle_event(event)
+
+    def handle_event(self, event: pygame.event.Event) -> bool:
+        """Handle a single event in both standalone and launcher modes."""
+        if self.dimensional_combat and self.dimensional_combat.in_combat:
+            if self.dimensional_combat.handle_input(event):
+                return True
+
+        if self.combat and self.combat.in_combat:
+            if self.combat.handle_input(event):
+                return True
+
+        if self.dialogue.handle_input(event):
+            return True
+
+        if self.overlays.handle_event(event):
+            return True
+
+        if event.type == pygame.QUIT:
+            self.running = False
+            return True
+
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                if self.dialogue.is_active:
+                    self.dialogue.stop()
+                elif self._mouse_captured:
+                    self._set_mouse_capture(False)
+                else:
+                    self.running = False
+                return True
+            if event.key == pygame.K_p:
+                if not self.dialogue.is_active:
+                    self.paused = not self.paused
+                return True
+            if event.key == pygame.K_r:
+                if not self.dialogue.is_active:
+                    self._reload_dimension()
+                return True
+            if event.key == pygame.K_TAB:
                 dim = self.session.active_dimension.id
-                if dim in ("3d", "4d") and not self._mouse_captured and not self.dialogue.is_active:
-                    self._set_mouse_capture(True)
-            
-            # Forward to input handler
-            self.input_handler.process_event(event)
-        
-        # Process mouse look for 3D/4D controllers
-        if self._mouse_captured and not self.paused and not self.dialogue.is_active:
-            self._volume_controller.process_mouse(self.input_handler)
-            self._hyper_controller.process_mouse(self.input_handler)
+                if dim in ("3d", "4d") and not self.dialogue.is_active:
+                    self._set_mouse_capture(not self._mouse_captured)
+                return True
+            if event.key == pygame.K_v:
+                if self.session.active_dimension.id == "4d":
+                    self._try_evolve()
+                return True
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            dim = self.session.active_dimension.id
+            if dim in ("3d", "4d") and not self._mouse_captured and not self.dialogue.is_active:
+                self._set_mouse_capture(True)
+
+        self.input_handler.process_event(event)
+        return False
+
+    def end_frame(self) -> None:
+        """Clear per-frame input state."""
+        self.input_handler.end_frame()
     
     def _try_evolve(self) -> None:
         """Attempt to evolve to the next polytope form."""
@@ -1802,6 +2026,25 @@ class GameLoop:
         """Draw session/progression info."""
         font = pygame.font.Font(None, 20)
         dim_id = self.session.active_dimension.id
+        left_y = 36
+
+        if self._current_world_def:
+            world_text = font.render(f"World: {self._current_world_def.name}", True, (140, 170, 210))
+            self.screen.blit(world_text, (10, left_y))
+            left_y += 18
+
+        if self._world_objectives:
+            for state in self._world_objectives[:3]:
+                label = state.spec.description or state.spec.id.replace("_", " ").title()
+                if state.spec.target > 1:
+                    current = int(state.progress) if state.progress.is_integer() else round(state.progress, 1)
+                    target = int(state.spec.target) if float(state.spec.target).is_integer() else round(state.spec.target, 1)
+                    label = f"{label} ({current}/{target})"
+                prefix = "[x]" if state.completed else "[ ]"
+                color = (120, 220, 170) if state.completed else (190, 190, 210)
+                objective_text = font.render(f"{prefix} {label}", True, color)
+                self.screen.blit(objective_text, (10, left_y))
+                left_y += 18
         
         # XP
         xp_text = font.render(f"XP: {self.session.progression.xp}", True, (180, 180, 100))
@@ -1819,7 +2062,7 @@ class GameLoop:
                 self.screen.blit(evolve_hint, (self.width - 150, 50))
         
         # Active mission
-        elif self.session.progression.active_node_id:
+        elif self.session.progression.active_node_id and not self._world_objectives:
             mission_text = font.render(
                 f"Mission: {self.session.progression.active_node_id}",
                 True, (150, 150, 200)
