@@ -1544,7 +1544,7 @@ class FancyMainMenu:
 
 
 def run_tessera_menu() -> Optional[dict]:
-    """Run the full Tessera menu experience. Returns data {mode, intro_impulse} or None."""
+    """Run the full Tessera menu experience. Returns data {mode, save_data} or None."""
     pygame.init()
     pygame.mixer.init()
     
@@ -1561,22 +1561,16 @@ def run_tessera_menu() -> Optional[dict]:
     
     running = True
     in_splash = True
-    in_intro = False
-    intro_sequence = None
     selected_mode = None
     intro_impulse = ""
     selected_save_data = None
     
     def on_start(mode: str):
-        nonlocal selected_mode, running, in_intro, intro_sequence, selected_save_data
+        nonlocal selected_mode, running, selected_save_data
         if mode == "new_game":
-            # Start the dramatic intro sequence
             menu.stop_music()
-            from .intro_sequence import IntroSequence
-            intro_sequence = IntroSequence(screen)
-            intro_sequence.start()
-            in_intro = True
-            selected_mode = mode  # Will be returned after intro
+            selected_mode = mode
+            running = False
         else:
             selected_save_data = menu.consume_selected_save_data()
             selected_mode = mode
@@ -1595,20 +1589,12 @@ def run_tessera_menu() -> Optional[dict]:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            elif in_intro and intro_sequence:
-                intro_sequence.handle_event(event)
             elif in_splash:
                 splash.handle_event(event)
             else:
                 menu.handle_event(event)
         
-        if in_intro and intro_sequence:
-            intro_sequence.update(dt)
-            intro_sequence.draw()
-            if intro_sequence.is_complete:
-                intro_impulse = getattr(intro_sequence, "impulse_choice", "") or ""
-                running = False
-        elif in_splash:
+        if in_splash:
             if splash.update(dt):
                 in_splash = False
                 menu.start_music()

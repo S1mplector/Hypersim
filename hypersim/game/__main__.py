@@ -116,8 +116,7 @@ def start_campaign(mode: str, intro_impulse: str = "", save_data: Optional[GameS
     # Wire up campaign callbacks
     def on_chapter_start(chapter_id: str):
         if mode == "new_game" and chapter_id == "chapter_1":
-            # The standalone intro and the in-world First Point cinematic already
-            # handle onboarding for a fresh start; skip the older chapter card.
+            # The birthing ritual now fully owns the opening.
             return
         chapter = campaign.chapters.get(chapter_id)
         if chapter and chapter.intro_dialogue_id:
@@ -151,7 +150,6 @@ def start_campaign(mode: str, intro_impulse: str = "", save_data: Optional[GameS
     
     # Start campaign for new game
     if mode == "new_game":
-        # The animated intro sequence now serves as the prologue.
         campaign.start_new_game()
         campaign.complete_prologue()
         campaign.start_chapter("chapter_1")

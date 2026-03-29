@@ -13,12 +13,7 @@
   "profile_name": "default",
   "active_node_id": null,
   "mission_progress": {},
-  "world_objective_progress": {
-    "tutorial_1d": {
-      "collect_energy": 1.0,
-      "reach_portal": 0.0
-    }
-  },
+  "world_objective_progress": {},
   "unlocked_abilities": [
     "ping_neighbors"
   ],
@@ -26,7 +21,7 @@
   "lineage_ritual_state": "cohere",
   "lineage_direction": "",
   "terminus_seen": false,
-  "shift_tutorial_done": true,
+  "shift_tutorial_done": false,
   "outsider_cutscene_played": false,
   "shown_dimension_vignettes": [
     "1d"
