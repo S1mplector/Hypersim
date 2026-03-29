@@ -220,12 +220,14 @@ class GameLoop:
         self._line_birth_flash = 0.0
         self._line_birth_intro_shown = False
         self._line_birth_music_active = False
-        self._line_birth_trial_phase = "pulse"  # pulse -> stabilize
+        self._line_birth_trial_phase = "pulse"  # pulse -> stabilize -> seal
         self._line_birth_pulse_timer = 0.0
         self._line_birth_pulse_hits = 0
         self._line_birth_balance = 0.0
         self._line_birth_balance_velocity = 0.0
         self._line_birth_stability = 0.0
+        self._line_birth_seal_rotation = 0.0
+        self._line_birth_seal_hits = 0
         self._line_birth_left_active = False
         self._line_birth_right_active = False
         self._line_birth_fail_flash = 0.0
@@ -244,6 +246,11 @@ class GameLoop:
         self._line_guardian_attack_timer = 0.0
         self._line_guardian_last_dialogue_index = -1
         self._line_guardian_transition_progress = 0.0
+        self._guardian_nebula_frames: List[pygame.Surface] = []
+        self._guardian_nebula_durations: List[float] = []
+        self._guardian_nebula_frame_index = 0
+        self._guardian_nebula_frame_timer = 0.0
+        self._guardian_nebula_loaded = False
         
         # Input handler reference for launcher integration
         self._input = self.input_handler
@@ -865,6 +872,8 @@ class GameLoop:
             self._line_birth_balance = 0.0
             self._line_birth_balance_velocity = 0.0
             self._line_birth_stability = 0.0
+            self._line_birth_seal_rotation = 0.0
+            self._line_birth_seal_hits = 0
             self._line_birth_left_active = False
             self._line_birth_right_active = False
             self._line_birth_fail_flash = 0.0
@@ -886,6 +895,8 @@ class GameLoop:
         self._line_birth_balance = 0.0
         self._line_birth_balance_velocity = 0.0
         self._line_birth_stability = 0.0
+        self._line_birth_seal_rotation = 0.0
+        self._line_birth_seal_hits = 0
         self._line_birth_left_active = False
         self._line_birth_right_active = False
         self._line_birth_fail_flash = 0.0
@@ -913,14 +924,14 @@ class GameLoop:
 
     def _line_birth_pulse_radius(self) -> float:
         """Return the current collapse-ring radius for the first trial."""
-        cycle_duration = 0.96
+        cycle_duration = 1.04
         progress = min(1.0, self._line_birth_pulse_timer / cycle_duration)
         return 214.0 - 182.0 * progress
 
     def _attempt_line_birth_pulse(self) -> None:
         """Resolve a timing attempt during the first birth trial."""
         radius = self._line_birth_pulse_radius()
-        in_window = 39.0 <= radius <= 51.0
+        in_window = 35.0 <= radius <= 57.0
         self._line_birth_flash = 1.0
         self._line_birth_pulse_timer = 0.0
 
@@ -935,8 +946,38 @@ class GameLoop:
                 self._line_birth_stability = 0.0
                 self._line_birth_fail_flash = 0.0
         else:
-            self._line_birth_pulse_hits = max(0, self._line_birth_pulse_hits - 2)
-            self._line_birth_charge = max(0.0, self._line_birth_charge - 0.12)
+            self._line_birth_pulse_hits = max(0, self._line_birth_pulse_hits - 1)
+            self._line_birth_charge = max(0.0, self._line_birth_charge - 0.08)
+            self._line_birth_fail_flash = 1.0
+            self.audio.play("damage", volume_override=0.22)
+
+    def _advance_line_birth_to_seal(self) -> None:
+        """Move the ritual into its final convergence trial before direction exists."""
+        self._line_birth_trial_phase = "seal"
+        self._line_birth_seal_rotation = math.pi
+        self._line_birth_seal_hits = 0
+        self._line_birth_flash = 1.0
+        self._line_birth_fail_flash = 0.0
+        self._line_birth_charge = max(self._line_birth_charge, 0.76)
+
+    def _attempt_line_birth_seal(self) -> None:
+        """Resolve the final convergence strike around the spark."""
+        gate_angle = math.pi * 1.5
+        angle = self._line_birth_seal_rotation % math.tau
+        delta = abs((angle - gate_angle + math.pi) % math.tau - math.pi)
+        in_window = delta <= 0.18
+        self._line_birth_flash = 1.0
+
+        if in_window:
+            self._line_birth_seal_hits = min(3, self._line_birth_seal_hits + 1)
+            self._line_birth_charge = min(1.0, 0.78 + self._line_birth_seal_hits * 0.07)
+            self._line_birth_seal_rotation = (self._line_birth_seal_rotation + 0.42) % math.tau
+            self.audio.play("ability", volume_override=0.28)
+            if self._line_birth_seal_hits >= 3:
+                self._advance_line_birth_to_direction()
+        else:
+            self._line_birth_seal_hits = max(0, self._line_birth_seal_hits - 1)
+            self._line_birth_charge = max(0.58, self._line_birth_charge - 0.08)
             self._line_birth_fail_flash = 1.0
             self.audio.play("damage", volume_override=0.22)
 
@@ -953,6 +994,8 @@ class GameLoop:
         self._line_birth_balance = 0.0
         self._line_birth_balance_velocity = 0.0
         self._line_birth_stability = 0.0
+        self._line_birth_seal_rotation = 0.0
+        self._line_birth_seal_hits = 0
         self._line_birth_left_active = False
         self._line_birth_right_active = False
         self._line_birth_fail_flash = 0.0
@@ -1000,6 +1043,13 @@ class GameLoop:
                 if event.type == pygame.KEYDOWN and event.key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_KP_ENTER):
                     self._attempt_line_birth_pulse()
                     return True
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    self._attempt_line_birth_pulse()
+                    return True
+            elif self._line_birth_trial_phase == "seal":
+                if event.type == pygame.KEYDOWN and event.key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_KP_ENTER):
+                    self._attempt_line_birth_seal()
+                    return True
             elif self._line_birth_trial_phase == "stabilize":
                 if event.type == pygame.KEYDOWN:
                     if event.key in (pygame.K_a, pygame.K_LEFT):
@@ -1040,14 +1090,14 @@ class GameLoop:
 
         if self._line_birth_state == "cohere":
             if self._line_birth_trial_phase == "pulse":
-                cycle_duration = 0.96
+                cycle_duration = 1.04
                 self._line_birth_pulse_timer += dt
                 if self._line_birth_pulse_timer >= cycle_duration:
                     self._line_birth_pulse_timer -= cycle_duration
-                    self._line_birth_pulse_hits = max(0, self._line_birth_pulse_hits - 2)
-                    self._line_birth_charge = max(0.0, self._line_birth_charge - 0.09)
+                    self._line_birth_pulse_hits = max(0, self._line_birth_pulse_hits - 1)
+                    self._line_birth_charge = max(0.0, self._line_birth_charge - 0.06)
                     self._line_birth_fail_flash = max(self._line_birth_fail_flash, 0.58)
-            else:
+            elif self._line_birth_trial_phase == "stabilize":
                 drift = math.sin(self._line_birth_time * 2.35) * 0.68 + math.cos(self._line_birth_time * 1.28) * 0.26
                 steer = 0.0
                 if self._line_birth_left_active:
@@ -1071,7 +1121,133 @@ class GameLoop:
 
                 self._line_birth_charge = min(1.0, 0.5 + self._line_birth_stability * 0.5)
                 if self._line_birth_stability >= 1.0:
-                    self._advance_line_birth_to_direction()
+                    self._advance_line_birth_to_seal()
+            else:
+                speed = 2.45 + self._line_birth_seal_hits * 0.42 + 0.18 * math.sin(self._line_birth_time * 1.6)
+                self._line_birth_seal_rotation = (self._line_birth_seal_rotation + dt * speed) % math.tau
+                self._line_birth_charge = min(
+                    0.96,
+                    max(
+                        self._line_birth_charge,
+                        0.72 + self._line_birth_seal_hits * 0.08 + (0.5 + 0.5 * math.sin(self._line_birth_time * 3.2)) * 0.03,
+                    ),
+                )
+
+    def _draw_void_hint(self, text: str, center_y: int) -> None:
+        """Draw a restrained hint for fullscreen ritual scenes."""
+        font = getattr(self, "_void_hint_font", None)
+        if font is None:
+            font = pygame.font.Font(None, 26)
+            self._void_hint_font = font
+
+        text_surface = font.render(text, True, (170, 190, 204))
+        pad_x = 16
+        pad_y = 10
+        panel = pygame.Surface((text_surface.get_width() + pad_x * 2, text_surface.get_height() + pad_y * 2), pygame.SRCALPHA)
+        pygame.draw.rect(panel, (10, 14, 20, 132), panel.get_rect(), border_radius=14)
+        pygame.draw.rect(panel, (42, 56, 72, 138), panel.get_rect(), width=1, border_radius=14)
+        panel.blit(text_surface, (pad_x, pad_y))
+        rect = panel.get_rect(center=(self.width // 2, center_y))
+        self.screen.blit(panel, rect)
+
+    def _load_guardian_nebula_frames(self) -> None:
+        """Lazily load the interior guardian nebula animation."""
+        if self._guardian_nebula_loaded:
+            return
+
+        self._guardian_nebula_loaded = True
+        if not PIL_AVAILABLE:
+            return
+
+        nebula_path = Path(__file__).parent / "assets" / "gifs" / "nebula.gif"
+        if not nebula_path.exists():
+            return
+
+        try:
+            with Image.open(nebula_path) as gif:
+                default_duration = gif.info.get("duration", 90)
+                for frame in ImageSequence.Iterator(gif):
+                    rgba = frame.convert("RGBA")
+                    surface = pygame.image.fromstring(rgba.tobytes(), rgba.size, "RGBA").convert_alpha()
+                    self._guardian_nebula_frames.append(surface)
+                    duration_ms = frame.info.get("duration", default_duration)
+                    self._guardian_nebula_durations.append(max(0.04, float(duration_ms) / 1000.0))
+        except Exception:
+            self._guardian_nebula_frames.clear()
+            self._guardian_nebula_durations.clear()
+
+    def _convex_hull_2d(self, points: list[tuple[int, int]]) -> list[tuple[int, int]]:
+        """Return the monotonic-chain hull for a projected 2D point set."""
+        unique = sorted(set(points))
+        if len(unique) <= 2:
+            return unique
+
+        def cross(origin: tuple[int, int], a: tuple[int, int], b: tuple[int, int]) -> int:
+            return (a[0] - origin[0]) * (b[1] - origin[1]) - (a[1] - origin[1]) * (b[0] - origin[0])
+
+        lower: list[tuple[int, int]] = []
+        for point in unique:
+            while len(lower) >= 2 and cross(lower[-2], lower[-1], point) <= 0:
+                lower.pop()
+            lower.append(point)
+
+        upper: list[tuple[int, int]] = []
+        for point in reversed(unique):
+            while len(upper) >= 2 and cross(upper[-2], upper[-1], point) <= 0:
+                upper.pop()
+            upper.append(point)
+
+        return lower[:-1] + upper[:-1]
+
+    def _draw_guardian_nebula(self, center: tuple[int, int], projected: list[tuple[int, int, float]]) -> None:
+        """Render the animated nebula so it reads as interior depth inside the guardian."""
+        self._load_guardian_nebula_frames()
+        if not self._guardian_nebula_frames:
+            return
+
+        hull = self._convex_hull_2d([(x, y) for x, y, _depth in projected])
+        if len(hull) < 3:
+            return
+
+        min_x = min(x for x, _y in hull)
+        max_x = max(x for x, _y in hull)
+        min_y = min(y for _x, y in hull)
+        max_y = max(y for _x, y in hull)
+        hull_w = max(64, max_x - min_x)
+        hull_h = max(64, max_y - min_y)
+
+        frame = self._guardian_nebula_frames[self._guardian_nebula_frame_index]
+        scaled_w = int(hull_w * 1.7)
+        scaled_h = int(hull_h * 1.7)
+        nebula = pygame.transform.smoothscale(frame, (scaled_w, scaled_h))
+
+        offset_x = int(math.sin(self._line_guardian_time * 0.44) * hull_w * 0.12)
+        offset_y = int(math.cos(self._line_guardian_time * 0.37) * hull_h * 0.1)
+        nebula_pos = (
+            center[0] - scaled_w // 2 + offset_x,
+            center[1] - scaled_h // 2 + offset_y,
+        )
+
+        interior_fill = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        pygame.draw.polygon(interior_fill, (8, 24, 30, 120), hull)
+        self.screen.blit(interior_fill, (0, 0))
+
+        nebula_layer = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        nebula_layer.blit(nebula, nebula_pos)
+
+        cyan_tint = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        cyan_tint.fill((34, 214, 255, 26))
+        nebula_layer.blit(cyan_tint, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+
+        mask = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        pygame.draw.polygon(mask, (255, 255, 255, 255), hull)
+        nebula_layer.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        self.screen.blit(nebula_layer, (0, 0))
+
+        inner_glow = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        pygame.draw.polygon(inner_glow, (86, 244, 255, 26), hull)
+        pygame.draw.polygon(inner_glow, (146, 252, 255, 30), hull, width=4)
+        self.screen.blit(inner_glow, (0, 0))
 
     def _draw_glow_circle_scene(
         self,
@@ -1126,6 +1302,24 @@ class GameLoop:
                 radius,
             )
 
+        shard_layer = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        shard_count = 8 if self._line_birth_state == "direction" else 12
+        for idx in range(shard_count):
+            angle = self._line_birth_time * (0.38 + idx * 0.015) + idx * 0.58
+            inner = 42 + idx * 10 - self._line_birth_charge * 12
+            outer = inner + 22 + 10 * pulse
+            start = (
+                int(spark_x + math.cos(angle) * inner),
+                int(spark_y + math.sin(angle) * (inner * 0.72)),
+            )
+            end = (
+                int(spark_x + math.cos(angle) * outer),
+                int(spark_y + math.sin(angle) * (outer * 0.72)),
+            )
+            alpha = max(16, int(54 - idx * 2 + self._line_birth_charge * 18))
+            pygame.draw.line(shard_layer, (120, 212, 244, alpha), start, end, 1)
+        self.screen.blit(shard_layer, (0, 0))
+
         base_radius = 10 + 12 * self._line_birth_charge + 4 * pulse
         self._draw_glow_circle_scene((spark_x, spark_y), int(base_radius * 2.4), (92, 212, 255), 32)
         self._draw_glow_circle_scene((spark_x, spark_y), int(base_radius * 1.5), (164, 238, 255), 74)
@@ -1137,6 +1331,16 @@ class GameLoop:
                 ring_radius = int(self._line_birth_pulse_radius())
                 pygame.draw.circle(self.screen, (34, 44, 68), (spark_x, spark_y), 96, 1)
                 pygame.draw.circle(self.screen, ring_color, (spark_x, spark_y), max(16, ring_radius), 3)
+                for idx in range(3):
+                    echo_radius = ring_radius + 28 + idx * 18
+                    if echo_radius < 224:
+                        pygame.draw.circle(
+                            self.screen,
+                            (58, 86, 112),
+                            (spark_x, spark_y),
+                            max(18, echo_radius),
+                            1,
+                        )
 
                 for idx in range(6):
                     marker_x = center_x - 140 + idx * 56
@@ -1153,7 +1357,7 @@ class GameLoop:
                             (marker_x - 8, marker_y),
                         ],
                     )
-            else:
+            elif self._line_birth_trial_phase == "stabilize":
                 guide_rect = pygame.Rect(0, 0, 168, 246)
                 guide_rect.center = (center_x, spark_y)
                 pygame.draw.rect(self.screen, (18, 26, 40), guide_rect, border_radius=24)
@@ -1177,6 +1381,58 @@ class GameLoop:
                 fill_rect = meter_rect.copy()
                 fill_rect.width = int(meter_width * self._line_birth_stability)
                 pygame.draw.rect(self.screen, (164, 238, 255), fill_rect, border_radius=6)
+                current_layer = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+                for side in (-1, 1):
+                    points = []
+                    for idx in range(7):
+                        progress = idx / 6.0
+                        wave = math.sin(self._line_birth_time * 2.2 + progress * 3.6 + side * 0.8)
+                        x = center_x + side * (118 + progress * 64 + wave * 16)
+                        y = spark_y - 122 + progress * 244
+                        points.append((int(x), int(y)))
+                    pygame.draw.lines(current_layer, (86, 166, 190, 46), False, points, 2)
+                self.screen.blit(current_layer, (0, 0))
+            else:
+                seal_radius = 124
+                gate_angle = math.pi * 1.5
+                gate_span = 0.22
+                ring_rect = pygame.Rect(0, 0, seal_radius * 2, seal_radius * 2)
+                ring_rect.center = (spark_x, spark_y)
+                pygame.draw.arc(
+                    self.screen,
+                    (56, 78, 96),
+                    ring_rect,
+                    gate_angle + gate_span,
+                    gate_angle + math.tau - gate_span,
+                    3,
+                )
+                gate_inner = (
+                    int(spark_x + math.cos(gate_angle) * (seal_radius - 8)),
+                    int(spark_y + math.sin(gate_angle) * (seal_radius - 8)),
+                )
+                gate_outer = (
+                    int(spark_x + math.cos(gate_angle) * (seal_radius + 16)),
+                    int(spark_y + math.sin(gate_angle) * (seal_radius + 16)),
+                )
+                pygame.draw.line(self.screen, (212, 248, 255), gate_inner, gate_outer, 4)
+
+                for idx in range(3):
+                    lag = idx * 0.18
+                    angle = self._line_birth_seal_rotation - lag
+                    orb_x = spark_x + math.cos(angle) * seal_radius
+                    orb_y = spark_y + math.sin(angle) * seal_radius
+                    alpha = max(28, 88 - idx * 22)
+                    radius = max(4, 8 - idx * 2)
+                    orb = pygame.Surface((radius * 2 + 6, radius * 2 + 6), pygame.SRCALPHA)
+                    pygame.draw.circle(orb, (150, 238, 255, alpha), (radius + 3, radius + 3), radius)
+                    self.screen.blit(orb, (int(orb_x) - radius - 3, int(orb_y) - radius - 3))
+
+                for idx in range(3):
+                    marker_x = center_x - 56 + idx * 56
+                    marker_y = spark_y - 162
+                    active = idx < self._line_birth_seal_hits
+                    color = (170, 236, 255) if active else (42, 52, 68)
+                    pygame.draw.circle(self.screen, color, (marker_x, marker_y), 8)
         elif self._line_birth_state == "direction":
             left_color = (150, 170, 245)
             right_color = (232, 196, 132)
@@ -1213,6 +1469,14 @@ class GameLoop:
                     (int(center_x + reach - 22), int(center_y + 12)),
                 ],
             )
+            for side, color in ((-1, left_color), (1, right_color)):
+                for idx in range(3):
+                    halo_radius = 48 + idx * 28 + pulse * 8
+                    arc_rect = pygame.Rect(0, 0, halo_radius * 2, halo_radius)
+                    arc_rect.center = (center_x + side * (118 + idx * 28), center_y)
+                    start_angle = math.pi * (0.14 if side < 0 else 0.86)
+                    end_angle = math.pi * (1.86 if side < 0 else 1.14)
+                    pygame.draw.arc(self.screen, color, arc_rect, start_angle, end_angle, 2)
 
         meter_width = 320
         meter_rect = pygame.Rect(0, 0, meter_width, 10)
@@ -1231,6 +1495,16 @@ class GameLoop:
             flash = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
             flash.fill((215, 232, 255, int(72 * self._line_birth_flash)))
             self.screen.blit(flash, (0, 0))
+
+        if self._line_birth_state == "cohere":
+            if self._line_birth_trial_phase == "pulse":
+                self._draw_void_hint("SPACE AT CONVERGENCE", self.height - 56)
+            elif self._line_birth_trial_phase == "stabilize":
+                self._draw_void_hint("A / D HOLD CENTER", self.height - 56)
+            else:
+                self._draw_void_hint("SPACE THROUGH THE SLIT", self.height - 56)
+        elif self._line_birth_state == "direction":
+            self._draw_void_hint("A / D CHOOSE DIRECTION", self.height - 56)
 
     def _can_attempt_impossible_line_motion(self) -> bool:
         """Return whether the player can currently strain against the Line."""
@@ -1332,6 +1606,14 @@ class GameLoop:
             return
 
         self._line_guardian_attack_timer = max(0.0, self._line_guardian_attack_timer - dt * 2.7)
+        self._load_guardian_nebula_frames()
+        if self._guardian_nebula_frames:
+            self._guardian_nebula_frame_timer += dt
+            frame_duration = self._guardian_nebula_durations[self._guardian_nebula_frame_index]
+            while self._guardian_nebula_frame_timer >= frame_duration:
+                self._guardian_nebula_frame_timer -= frame_duration
+                self._guardian_nebula_frame_index = (self._guardian_nebula_frame_index + 1) % len(self._guardian_nebula_frames)
+                frame_duration = self._guardian_nebula_durations[self._guardian_nebula_frame_index]
         current_sequence = getattr(self.dialogue, "_current_sequence", None)
         current_index = getattr(self.dialogue, "_current_line_index", 0)
 
@@ -1364,6 +1646,8 @@ class GameLoop:
         self._line_guardian_attack_timer = 0.0
         self._line_guardian_last_dialogue_index = 0
         self._line_guardian_transition_progress = 0.0
+        self._guardian_nebula_frame_index = 0
+        self._guardian_nebula_frame_timer = 0.0
         self._line_strain_bend = max(self._line_strain_bend, 0.9)
         self._line_strain_shake = max(self._line_strain_shake, 1.2)
         self._line_strain_flash = 1.0
@@ -1534,25 +1818,75 @@ class GameLoop:
         vertices, edges = self._guardian_tesseract_geometry()
         projected = [self._project_guardian_vertex(self._rotate_guardian_vertex(v), center, scale) for v in vertices]
 
+        self._draw_guardian_nebula(center, projected)
+
+        guardian_center_vec = np.array(center, dtype=float)
+        umbra = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         glow = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        edge_energy = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         for i, j in edges:
             p1, p2 = projected[i], projected[j]
-            pygame.draw.line(glow, (56, 245, 255, 28), (p1[0], p1[1]), (p2[0], p2[1]), 8)
+            p1_vec = np.array([p1[0], p1[1]], dtype=float)
+            p2_vec = np.array([p2[0], p2[1]], dtype=float)
+            mid = (p1_vec + p2_vec) * 0.5
+            outward = mid - guardian_center_vec
+            outward_norm = max(1.0, np.linalg.norm(outward))
+            outward /= outward_norm
+            tangent = p2_vec - p1_vec
+            tangent_norm = max(1.0, np.linalg.norm(tangent))
+            tangent /= tangent_norm
+            depth = max(0.25, min(1.0, (p1[2] + p2[2] + 2.5) / 5.0))
+            offset = outward * (2.0 + depth * 3.4)
+
+            shadow_start = tuple((p1_vec + offset * 0.65).astype(int))
+            shadow_end = tuple((p2_vec + offset * 0.65).astype(int))
+            pygame.draw.line(umbra, (0, 0, 0, int(156 * depth)), shadow_start, shadow_end, max(8, int(14 * depth)))
+            pygame.draw.line(umbra, (4, 10, 14, int(110 * depth)), (p1[0], p1[1]), (p2[0], p2[1]), max(6, int(10 * depth)))
+
+            pygame.draw.line(glow, (34, 214, 255, int(42 * depth)), (p1[0], p1[1]), (p2[0], p2[1]), max(10, int(16 * depth)))
+
+            for marker_idx, marker_t in enumerate((0.22, 0.5, 0.78)):
+                emit = p1_vec * (1.0 - marker_t) + p2_vec * marker_t
+                wave = math.sin(self._line_guardian_time * 3.1 + i * 0.41 + j * 0.27 + marker_idx * 1.9)
+                ray_dir = outward * (0.88 + 0.08 * wave) + tangent * (0.22 * wave)
+                ray_dir /= max(1.0, np.linalg.norm(ray_dir))
+                ray_start = emit + outward * 3.0
+                ray_end = ray_start + ray_dir * (12.0 + depth * 20.0 + abs(wave) * 10.0)
+                alpha = int(26 + depth * 40.0 - marker_idx * 5)
+                pygame.draw.line(
+                    edge_energy,
+                    (72, 238, 255, alpha),
+                    tuple(ray_start.astype(int)),
+                    tuple(ray_end.astype(int)),
+                    1,
+                )
+                ember_radius = 1 + marker_idx // 2
+                pygame.draw.circle(edge_energy, (126, 248, 255, alpha + 12), tuple(ray_start.astype(int)), ember_radius)
+        self.screen.blit(umbra, (0, 0))
         self.screen.blit(glow, (0, 0))
+        self.screen.blit(edge_energy, (0, 0))
 
         for i, j in edges:
             p1, p2 = projected[i], projected[j]
             depth = max(0.25, min(1.0, (p1[2] + p2[2] + 2.5) / 5.0))
             edge_color = (
-                int(92 * depth),
-                int(232 * depth),
+                int(8 + 12 * depth),
+                int(16 + 20 * depth),
+                int(24 + 26 * depth),
+            )
+            pygame.draw.line(self.screen, edge_color, (p1[0], p1[1]), (p2[0], p2[1]), max(2, int(5 * depth)))
+            highlight_color = (
+                int(68 * depth),
+                int(228 * depth),
                 int(255 * depth),
             )
-            pygame.draw.line(self.screen, edge_color, (p1[0], p1[1]), (p2[0], p2[1]), max(1, int(4 * depth)))
+            pygame.draw.line(self.screen, highlight_color, (p1[0], p1[1]), (p2[0], p2[1]), max(1, int(2 * depth)))
 
         for x, y, depth in projected:
             factor = max(0.35, min(1.0, (depth + 2.5) / 5.0))
-            pygame.draw.circle(self.screen, (120, int(245 * factor), 255), (x, y), max(2, int(5 * factor)))
+            self._draw_glow_circle_scene((x, y), max(5, int(8 * factor)), (8, 16, 20), int(36 * factor))
+            pygame.draw.circle(self.screen, (6, 14, 18), (x, y), max(3, int(6 * factor)))
+            pygame.draw.circle(self.screen, (132, int(245 * factor), 255), (x, y), max(1, int(2 * factor)))
 
         attack_phase = 1.0 - self._line_guardian_attack_timer
         attack_phase = max(0.0, min(1.0, attack_phase))
@@ -1565,86 +1899,160 @@ class GameLoop:
         direction = np.array([victim[0] - center[0], victim[1] - center[1]], dtype=float)
         direction /= max(1.0, np.linalg.norm(direction))
         perpendicular = np.array([-direction[1], direction[0]], dtype=float)
-        weapon_length = 178.0
+        weapon_length = 208.0
         idle_origin = (
             np.array(center, dtype=float)
-            + perpendicular * (152.0 + 14.0 * math.sin(self._line_guardian_time * 1.3))
-            - direction * (42.0 - 10.0 * math.cos(self._line_guardian_time * 1.1))
+            + perpendicular * (166.0 + 18.0 * math.sin(self._line_guardian_time * 1.3))
+            - direction * (54.0 - 12.0 * math.cos(self._line_guardian_time * 1.1))
         )
         strike_origin = np.array(victim, dtype=float) - direction * (weapon_length - 24.0)
         base = idle_origin * (1.0 - thrust) + strike_origin * thrust
         tip = base + direction * weapon_length
-        tail = base - direction * 26.0
-        shaft_half = 7.0 + (1.0 - thrust) * 2.0
+        tail = base - direction * 34.0
+        shaft_half = 8.6 + (1.0 - thrust) * 2.6
+        weapon_core = base + direction * 98.0
         shaft_points = [
-            tuple((base + perpendicular * shaft_half).astype(int)),
-            tuple((tip + perpendicular * shaft_half * 0.34).astype(int)),
-            tuple((tip - perpendicular * shaft_half * 0.34).astype(int)),
-            tuple((base - perpendicular * shaft_half).astype(int)),
+            tuple((base + perpendicular * shaft_half * 1.05).astype(int)),
+            tuple((weapon_core + perpendicular * shaft_half * 0.94).astype(int)),
+            tuple((tip + perpendicular * shaft_half * 0.26).astype(int)),
+            tuple((tip - perpendicular * shaft_half * 0.26).astype(int)),
+            tuple((weapon_core - perpendicular * shaft_half * 0.94).astype(int)),
+            tuple((base - perpendicular * shaft_half * 1.05).astype(int)),
         ]
-        head_base = tip - direction * 28.0
+        inner_shaft_points = [
+            tuple((base + perpendicular * shaft_half * 0.34).astype(int)),
+            tuple((weapon_core + perpendicular * shaft_half * 0.28).astype(int)),
+            tuple((tip + perpendicular * shaft_half * 0.08).astype(int)),
+            tuple((tip - perpendicular * shaft_half * 0.08).astype(int)),
+            tuple((weapon_core - perpendicular * shaft_half * 0.28).astype(int)),
+            tuple((base - perpendicular * shaft_half * 0.34).astype(int)),
+        ]
+        head_base = tip - direction * 38.0
+        head_wing = tip - direction * 64.0
         spear_head = [
             tuple(tip.astype(int)),
-            tuple((head_base + perpendicular * 19.0).astype(int)),
-            tuple((head_base - perpendicular * 19.0).astype(int)),
+            tuple((head_base + perpendicular * 11.0).astype(int)),
+            tuple((head_wing + perpendicular * 28.0).astype(int)),
+            tuple((head_wing - perpendicular * 28.0).astype(int)),
+            tuple((head_base - perpendicular * 11.0).astype(int)),
+        ]
+        upper_prong = [
+            tuple((head_base + perpendicular * 8.0).astype(int)),
+            tuple((head_base + perpendicular * 30.0 - direction * 24.0).astype(int)),
+            tuple((tip + perpendicular * 16.0 - direction * 10.0).astype(int)),
+        ]
+        lower_prong = [
+            tuple((head_base - perpendicular * 8.0).astype(int)),
+            tuple((head_base - perpendicular * 30.0 - direction * 24.0).astype(int)),
+            tuple((tip - perpendicular * 16.0 - direction * 10.0).astype(int)),
         ]
         tail_head = [
             tuple(tail.astype(int)),
-            tuple((tail + perpendicular * 14.0).astype(int)),
-            tuple((tail - perpendicular * 14.0).astype(int)),
+            tuple((tail + perpendicular * 18.0 + direction * 8.0).astype(int)),
+            tuple((tail - perpendicular * 18.0 + direction * 8.0).astype(int)),
         ]
-        fin_center = base + direction * 72.0
+        fin_center = base + direction * 70.0
         fin_a = [
-            tuple((fin_center + perpendicular * 18.0).astype(int)),
-            tuple((fin_center - direction * 20.0 + perpendicular * 4.0).astype(int)),
-            tuple((fin_center - direction * 8.0).astype(int)),
+            tuple((fin_center + perpendicular * 26.0).astype(int)),
+            tuple((fin_center - direction * 26.0 + perpendicular * 6.0).astype(int)),
+            tuple((fin_center - direction * 10.0 - perpendicular * 6.0).astype(int)),
+            tuple((fin_center + direction * 6.0 + perpendicular * 10.0).astype(int)),
         ]
         fin_b = [
-            tuple((fin_center - perpendicular * 18.0).astype(int)),
-            tuple((fin_center - direction * 20.0 - perpendicular * 4.0).astype(int)),
-            tuple((fin_center - direction * 8.0).astype(int)),
+            tuple((fin_center - perpendicular * 26.0).astype(int)),
+            tuple((fin_center - direction * 26.0 - perpendicular * 6.0).astype(int)),
+            tuple((fin_center - direction * 10.0 + perpendicular * 6.0).astype(int)),
+            tuple((fin_center + direction * 6.0 - perpendicular * 10.0).astype(int)),
+        ]
+        rear_barb_center = base + direction * 22.0
+        rear_barb_a = [
+            tuple((rear_barb_center + perpendicular * 20.0).astype(int)),
+            tuple((rear_barb_center + direction * 24.0 + perpendicular * 5.0).astype(int)),
+            tuple((rear_barb_center + direction * 6.0 - perpendicular * 4.0).astype(int)),
+        ]
+        rear_barb_b = [
+            tuple((rear_barb_center - perpendicular * 20.0).astype(int)),
+            tuple((rear_barb_center + direction * 24.0 - perpendicular * 5.0).astype(int)),
+            tuple((rear_barb_center + direction * 6.0 + perpendicular * 4.0).astype(int)),
+        ]
+        core_diamond = [
+            tuple((weapon_core + perpendicular * 12.0).astype(int)),
+            tuple((weapon_core + direction * 16.0).astype(int)),
+            tuple((weapon_core - perpendicular * 12.0).astype(int)),
+            tuple((weapon_core - direction * 16.0).astype(int)),
+        ]
+        core_cage = [
+            tuple((weapon_core + perpendicular * 22.0).astype(int)),
+            tuple((weapon_core + direction * 26.0).astype(int)),
+            tuple((weapon_core - perpendicular * 22.0).astype(int)),
+            tuple((weapon_core - direction * 26.0).astype(int)),
         ]
 
         spear_glow = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-        for trail_idx in range(4):
-            lag = (trail_idx + 1) / 4.0
-            ghost_progress = max(0.0, thrust - lag * 0.18)
+        for trail_idx in range(5):
+            lag = (trail_idx + 1) / 5.0
+            ghost_progress = max(0.0, thrust - lag * 0.16)
             ghost_base = idle_origin * (1.0 - ghost_progress) + strike_origin * ghost_progress
             ghost_tip = ghost_base + direction * weapon_length
+            ghost_core = ghost_base + direction * 98.0
             ghost_half = shaft_half * (1.0 - lag * 0.18)
             ghost_points = [
-                tuple((ghost_base + perpendicular * ghost_half).astype(int)),
-                tuple((ghost_tip + perpendicular * ghost_half * 0.34).astype(int)),
-                tuple((ghost_tip - perpendicular * ghost_half * 0.34).astype(int)),
-                tuple((ghost_base - perpendicular * ghost_half).astype(int)),
+                tuple((ghost_base + perpendicular * ghost_half * 1.05).astype(int)),
+                tuple((ghost_core + perpendicular * ghost_half * 0.94).astype(int)),
+                tuple((ghost_tip + perpendicular * ghost_half * 0.26).astype(int)),
+                tuple((ghost_tip - perpendicular * ghost_half * 0.26).astype(int)),
+                tuple((ghost_core - perpendicular * ghost_half * 0.94).astype(int)),
+                tuple((ghost_base - perpendicular * ghost_half * 1.05).astype(int)),
             ]
-            pygame.draw.polygon(spear_glow, (86, 246, 255, max(0, 46 - trail_idx * 10)), ghost_points)
-        pygame.draw.polygon(spear_glow, (86, 246, 255, 40), shaft_points)
-        pygame.draw.polygon(spear_glow, (124, 255, 255, 76), spear_head)
-        pygame.draw.polygon(spear_glow, (94, 244, 255, 42), fin_a)
-        pygame.draw.polygon(spear_glow, (94, 244, 255, 42), fin_b)
+            pygame.draw.polygon(spear_glow, (86, 246, 255, max(0, 54 - trail_idx * 9)), ghost_points)
+        pygame.draw.polygon(spear_glow, (62, 196, 218, 54), shaft_points)
+        pygame.draw.polygon(spear_glow, (128, 255, 255, 96), spear_head)
+        pygame.draw.polygon(spear_glow, (116, 252, 255, 74), upper_prong)
+        pygame.draw.polygon(spear_glow, (116, 252, 255, 74), lower_prong)
+        pygame.draw.polygon(spear_glow, (96, 240, 255, 56), fin_a)
+        pygame.draw.polygon(spear_glow, (96, 240, 255, 56), fin_b)
+        pygame.draw.polygon(spear_glow, (82, 228, 246, 44), rear_barb_a)
+        pygame.draw.polygon(spear_glow, (82, 228, 246, 44), rear_barb_b)
+        pygame.draw.polygon(spear_glow, (132, 250, 255, 44), core_cage, width=2)
+        pygame.draw.circle(spear_glow, (96, 242, 255, 40), tuple(weapon_core.astype(int)), 26, 1)
         self.screen.blit(spear_glow, (0, 0))
-        pygame.draw.polygon(self.screen, (64, 214, 232), shaft_points)
-        pygame.draw.polygon(self.screen, (185, 255, 255), spear_head)
-        pygame.draw.polygon(self.screen, (58, 198, 214), tail_head)
-        pygame.draw.polygon(self.screen, (88, 224, 240), fin_a)
-        pygame.draw.polygon(self.screen, (88, 224, 240), fin_b)
+        pygame.draw.polygon(self.screen, (40, 122, 142), shaft_points)
+        pygame.draw.polygon(self.screen, (118, 230, 244), inner_shaft_points)
+        pygame.draw.polygon(self.screen, (234, 255, 255), spear_head)
+        pygame.draw.polygon(self.screen, (190, 252, 255), upper_prong)
+        pygame.draw.polygon(self.screen, (190, 252, 255), lower_prong)
+        pygame.draw.polygon(self.screen, (54, 188, 208), tail_head)
+        pygame.draw.polygon(self.screen, (90, 226, 242), fin_a)
+        pygame.draw.polygon(self.screen, (90, 226, 242), fin_b)
+        pygame.draw.polygon(self.screen, (74, 214, 236), rear_barb_a)
+        pygame.draw.polygon(self.screen, (74, 214, 236), rear_barb_b)
+        pygame.draw.polygon(self.screen, (14, 24, 30), core_diamond)
+        pygame.draw.polygon(self.screen, (154, 248, 255), core_cage, width=2)
+        pygame.draw.circle(self.screen, (224, 255, 255), tuple((weapon_core + direction * 2.0).astype(int)), 4)
 
         if thrust < 0.2:
             hover_glow = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
             pygame.draw.circle(
                 hover_glow,
-                (72, 236, 255, 34),
+                (72, 236, 255, 28),
                 tuple(idle_origin.astype(int)),
-                22,
+                28,
                 1,
             )
             pygame.draw.circle(
                 hover_glow,
-                (126, 248, 255, 64),
+                (126, 248, 255, 44),
                 tuple(idle_origin.astype(int)),
                 8,
             )
+            pygame.draw.circle(
+                hover_glow,
+                (96, 242, 255, 32),
+                tuple(weapon_core.astype(int)),
+                30,
+                1,
+            )
+            pygame.draw.polygon(hover_glow, (132, 250, 255, 42), core_cage, width=1)
             self.screen.blit(hover_glow, (0, 0))
 
         point_glow = max(0.0, 1.0 - self._line_guardian_strikes * 0.28)
