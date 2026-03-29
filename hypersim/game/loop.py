@@ -1053,16 +1053,54 @@ class GameLoop:
         progress = min(1.0, self._line_birth_pulse_timer / cycle_duration)
         return 214.0 - 182.0 * progress
 
+    def _line_birth_pulse_precision(self) -> float:
+        """Return how close the current pulse ring is to ideal convergence."""
+        radius = self._line_birth_pulse_radius()
+        ideal_radius = 46.0
+        return max(0.0, 1.0 - abs(radius - ideal_radius) / 12.0)
+
+    def _line_birth_gather_target_pos(self) -> np.ndarray:
+        """Return the current gather-shard position in ritual-local space."""
+        target_angle = self._line_birth_time * (1.28 + self._line_birth_gather_collected * 0.08) + self._line_birth_gather_collected * 1.17
+        return np.array([
+            math.cos(target_angle) * (118.0 + 10.0 * math.sin(self._line_birth_time * 1.2 + self._line_birth_gather_collected)),
+            math.sin(target_angle * 1.18) * (88.0 + 8.0 * math.cos(self._line_birth_time * 0.9 + self._line_birth_gather_collected * 0.7)),
+        ])
+
+    def _line_birth_endure_radius(self) -> float:
+        """Return the current safe radius for the endure phase."""
+        return 34.0 + math.sin(self._line_birth_time * 3.4) * 6.0 + math.cos(self._line_birth_time * 1.8) * 2.0
+
+    def _line_birth_stabilize_safe_limit(self) -> float:
+        """Return the breathing center threshold for the stabilize phase."""
+        return 0.12 + (0.5 + 0.5 * math.sin(self._line_birth_time * 2.8 + 0.7)) * 0.08
+
+    def _line_birth_weave_beat_strength(self) -> float:
+        """Return beat emphasis for the weave phase."""
+        return 0.5 + 0.5 * math.sin(self._line_birth_time * 8.6)
+
+    def _line_birth_seal_gate_span(self) -> float:
+        """Return the current angular window for the seal phase."""
+        return 0.17 + (0.5 + 0.5 * math.sin(self._line_birth_time * 2.2 + self._line_birth_seal_hits * 0.6)) * 0.08
+
+    def _line_birth_scene_offset(self) -> tuple[int, int]:
+        """Return a small camera offset for ritual impacts and instability."""
+        intensity = self._line_birth_flash * 1.4 + self._line_birth_fail_flash * 2.2
+        offset_x = int(math.sin(self._line_birth_time * 31.0) * intensity * 5.0 + math.cos(self._line_birth_time * 17.0) * self._line_birth_fail_flash * 3.0)
+        offset_y = int(math.cos(self._line_birth_time * 27.0 + 0.7) * intensity * 4.0)
+        return offset_x, offset_y
+
     def _attempt_line_birth_pulse(self) -> None:
         """Resolve a timing attempt during the first birth trial."""
         radius = self._line_birth_pulse_radius()
-        in_window = 35.0 <= radius <= 57.0
+        precision = self._line_birth_pulse_precision()
+        in_window = precision > 0.0
         self._line_birth_flash = 1.0
         self._line_birth_pulse_timer = 0.0
 
         if in_window:
             self._line_birth_pulse_hits = min(6, self._line_birth_pulse_hits + 1)
-            self._line_birth_charge = min(0.5, self._line_birth_pulse_hits / 12.0)
+            self._line_birth_charge = min(0.5, self._line_birth_pulse_hits / 12.0 + precision * 0.035)
             self.audio.play("ability", volume_override=0.28)
             if self._line_birth_pulse_hits >= 6:
                 self._line_birth_trial_phase = "gather"
@@ -1107,18 +1145,24 @@ class GameLoop:
     def _attempt_line_birth_weave(self, direction_sign: int) -> None:
         """Resolve an alternating weave input during the fourth birth trial."""
         direction_sign = 1 if direction_sign >= 0 else -1
+        beat_strength = self._line_birth_weave_beat_strength()
+        on_beat = beat_strength >= 0.72
         self._line_birth_flash = 1.0
         self._line_birth_direction_bias += 0.12 * direction_sign
 
         if direction_sign == self._line_birth_weave_expected:
-            self._line_birth_weave_progress = min(1.0, self._line_birth_weave_progress + 0.2)
+            gain = 0.24 if on_beat else 0.14
+            self._line_birth_weave_progress = min(1.0, self._line_birth_weave_progress + gain)
             self._line_birth_charge = min(1.0, max(self._line_birth_charge, 0.74 + self._line_birth_weave_progress * 0.18))
             self._line_birth_weave_expected *= -1
+            if not on_beat:
+                self._line_birth_fail_flash = max(self._line_birth_fail_flash, 0.16)
             self.audio.play("ability", volume_override=0.28)
             if self._line_birth_weave_progress >= 1.0:
                 self._advance_line_birth_to_seal()
         else:
-            self._line_birth_weave_progress = max(0.0, self._line_birth_weave_progress - 0.16)
+            penalty = 0.22 if on_beat else 0.14
+            self._line_birth_weave_progress = max(0.0, self._line_birth_weave_progress - penalty)
             self._line_birth_charge = max(0.62, self._line_birth_charge - 0.05)
             self._line_birth_fail_flash = 1.0
             self.audio.play("damage", volume_override=0.2)
@@ -1138,7 +1182,7 @@ class GameLoop:
         gate_angle = math.pi * 1.5
         angle = self._line_birth_seal_rotation % math.tau
         delta = abs((angle - gate_angle + math.pi) % math.tau - math.pi)
-        in_window = delta <= 0.18
+        in_window = delta <= self._line_birth_seal_gate_span()
         self._line_birth_flash = 1.0
 
         if in_window:
@@ -1222,6 +1266,7 @@ class GameLoop:
         """Consume input for the line-birth ritual."""
         if not self._is_line_birth_active():
             return False
+        phase = self._line_birth_trial_phase
 
         if self._line_birth_interstitial_active:
             if (
@@ -1336,36 +1381,44 @@ class GameLoop:
             elif self._line_birth_trial_phase == "gather":
                 speed = 228.0
                 move = self._line_birth_move_vector()
+                flow = np.array([
+                    math.sin(self._line_birth_time * 1.7 + self._line_birth_gather_cursor[1] * 0.02 + self._line_birth_gather_collected),
+                    math.cos(self._line_birth_time * 1.35 + self._line_birth_gather_cursor[0] * 0.018 - self._line_birth_gather_collected * 0.6),
+                ]) * 18.0
                 self._line_birth_gather_cursor += move * speed * dt
+                self._line_birth_gather_cursor += flow * dt
                 self._line_birth_gather_cursor[0] = float(np.clip(self._line_birth_gather_cursor[0], -170.0, 170.0))
                 self._line_birth_gather_cursor[1] = float(np.clip(self._line_birth_gather_cursor[1], -140.0, 140.0))
 
-                target_angle = self._line_birth_time * (1.28 + self._line_birth_gather_collected * 0.08) + self._line_birth_gather_collected * 1.17
-                target_pos = np.array([
-                    math.cos(target_angle) * (118.0 + 10.0 * math.sin(self._line_birth_time * 1.2 + self._line_birth_gather_collected)),
-                    math.sin(target_angle * 1.18) * (88.0 + 8.0 * math.cos(self._line_birth_time * 0.9 + self._line_birth_gather_collected * 0.7)),
-                ])
+                target_pos = self._line_birth_gather_target_pos()
                 if np.linalg.norm(self._line_birth_gather_cursor - target_pos) <= 26.0:
                     self._line_birth_gather_collected += 1
                     self._line_birth_charge = min(0.64, 0.5 + self._line_birth_gather_collected * 0.023)
                     self._line_birth_flash = 1.0
+                    self._line_birth_gather_cursor *= 0.72
                     self.audio.play("ability", volume_override=0.24)
                     if self._line_birth_gather_collected >= 6:
                         self._advance_line_birth_to_endure()
             elif self._line_birth_trial_phase == "endure":
                 speed = 204.0
                 move = self._line_birth_move_vector()
+                flow = np.array([
+                    math.sin(self._line_birth_time * 3.6 + self._line_birth_gather_cursor[1] * 0.012),
+                    math.cos(self._line_birth_time * 3.1 + self._line_birth_gather_cursor[0] * 0.014),
+                ]) * 10.0
                 self._line_birth_gather_cursor += move * speed * dt
+                self._line_birth_gather_cursor += flow * dt
                 self._line_birth_gather_cursor[0] = float(np.clip(self._line_birth_gather_cursor[0], -178.0, 178.0))
                 self._line_birth_gather_cursor[1] = float(np.clip(self._line_birth_gather_cursor[1], -148.0, 148.0))
 
                 target_pos = self._line_birth_endure_target()
                 distance = float(np.linalg.norm(self._line_birth_gather_cursor - target_pos))
-                if distance <= 34.0:
+                safe_radius = self._line_birth_endure_radius()
+                if distance <= safe_radius:
                     self._line_birth_endure_progress = min(1.0, self._line_birth_endure_progress + dt * 0.42)
                     self._line_birth_charge = min(0.76, max(self._line_birth_charge, 0.62 + self._line_birth_endure_progress * 0.14))
                 else:
-                    decay = 0.2 + max(0.0, distance - 34.0) * 0.004
+                    decay = 0.2 + max(0.0, distance - safe_radius) * 0.004
                     self._line_birth_endure_progress = max(0.0, self._line_birth_endure_progress - dt * decay)
                     if distance > 82.0:
                         self._line_birth_fail_flash = max(self._line_birth_fail_flash, 0.48)
@@ -1386,11 +1439,12 @@ class GameLoop:
                 self._line_birth_balance += self._line_birth_balance_velocity * dt
                 self._line_birth_balance = float(np.clip(self._line_birth_balance, -1.35, 1.35))
 
-                centered = abs(self._line_birth_balance) < 0.16
+                safe_limit = self._line_birth_stabilize_safe_limit()
+                centered = abs(self._line_birth_balance) < safe_limit
                 if centered:
                     self._line_birth_stability = min(1.0, self._line_birth_stability + dt * 0.26)
                 else:
-                    penalty = 0.4 + max(0.0, abs(self._line_birth_balance) - 0.16) * 0.46
+                    penalty = 0.36 + max(0.0, abs(self._line_birth_balance) - safe_limit) * 0.52
                     self._line_birth_stability = max(0.0, self._line_birth_stability - dt * penalty)
                     if abs(self._line_birth_balance) > 0.74:
                         self._line_birth_fail_flash = max(self._line_birth_fail_flash, 0.72)
@@ -1399,11 +1453,12 @@ class GameLoop:
                 if self._line_birth_stability >= 1.0:
                     self._advance_line_birth_to_weave()
             elif self._line_birth_trial_phase == "weave":
-                decay = 0.12 + 0.08 * (1.0 - self._line_birth_weave_progress)
+                beat_strength = self._line_birth_weave_beat_strength()
+                decay = 0.06 + 0.06 * (1.0 - beat_strength) + 0.05 * (1.0 - self._line_birth_weave_progress)
                 self._line_birth_weave_progress = max(0.0, self._line_birth_weave_progress - dt * decay)
                 self._line_birth_charge = max(0.68, 0.76 + self._line_birth_weave_progress * 0.18 - dt * 0.04)
             else:
-                speed = 2.45 + self._line_birth_seal_hits * 0.42 + 0.18 * math.sin(self._line_birth_time * 1.6)
+                speed = 2.28 + self._line_birth_seal_hits * 0.48 + 0.24 * math.sin(self._line_birth_time * 1.6) + 0.12 * math.cos(self._line_birth_time * 3.0)
                 self._line_birth_seal_rotation = (self._line_birth_seal_rotation + dt * speed) % math.tau
                 self._line_birth_charge = min(
                     0.96,
@@ -1614,6 +1669,9 @@ class GameLoop:
         center_x = self.width // 2
         center_y = self.height // 2 - 12
         phase = self._line_birth_trial_phase
+        scene_offset_x, scene_offset_y = self._line_birth_scene_offset()
+        center_x += scene_offset_x
+        center_y += scene_offset_y
 
         pulse = 0.5 + 0.5 * np.sin(self._line_birth_time * 2.4)
         core_color = (164, 238, 255)
@@ -1626,6 +1684,8 @@ class GameLoop:
             spark_y += int(self._line_birth_gather_cursor[1])
         elif self._line_birth_state == "cohere" and phase == "stabilize":
             spark_x += int(self._line_birth_balance * 170.0)
+
+        ritual_move = self._line_birth_move_vector()
 
         dust = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         for idx in range(32):
@@ -1684,6 +1744,15 @@ class GameLoop:
             orb_layer.blit(orb, (int(orb_x) - orb_radius - 3, int(orb_y) - orb_radius - 3))
         self.screen.blit(orb_layer, (0, 0))
 
+        if phase in {"gather", "endure"} and float(np.linalg.norm(ritual_move)) > 0.0:
+            trail_layer = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            for idx in range(1, 5):
+                falloff = 1.0 - idx / 5.0
+                ghost_x = spark_x - ritual_move[0] * idx * 18.0
+                ghost_y = spark_y - ritual_move[1] * idx * 18.0
+                pygame.draw.circle(trail_layer, (136, 224, 248, int(42 * falloff)), (int(ghost_x), int(ghost_y)), max(2, int(5 * falloff)))
+            self.screen.blit(trail_layer, (0, 0))
+
         base_radius = 10 + 12 * self._line_birth_charge + 4 * pulse
         self._draw_glow_circle_scene((spark_x, spark_y), int(base_radius * 2.4), (92, 212, 255), 32)
         self._draw_glow_circle_scene((spark_x, spark_y), int(base_radius * 1.5), (164, 238, 255), 74)
@@ -1693,7 +1762,11 @@ class GameLoop:
         if self._line_birth_state == "cohere":
             if self._line_birth_trial_phase == "pulse":
                 ring_radius = int(self._line_birth_pulse_radius())
+                target_radius = 46
+                pulse_precision = self._line_birth_pulse_precision()
                 pygame.draw.circle(self.screen, (34, 44, 68), (spark_x, spark_y), 96, 1)
+                pygame.draw.circle(self.screen, (86, 116, 146), (spark_x, spark_y), target_radius, 1)
+                pygame.draw.circle(self.screen, (176, 236, 255), (spark_x, spark_y), target_radius, 2 if pulse_precision > 0.55 else 1)
                 pygame.draw.circle(self.screen, ring_color, (spark_x, spark_y), max(16, ring_radius), 3)
                 for idx in range(3):
                     echo_radius = ring_radius + 28 + idx * 18
@@ -1705,6 +1778,17 @@ class GameLoop:
                             max(18, echo_radius),
                             1,
                         )
+                for idx in range(4):
+                    angle = self._line_birth_time * 1.8 + idx * (math.tau / 4.0)
+                    inner = (
+                        int(spark_x + math.cos(angle) * 26),
+                        int(spark_y + math.sin(angle) * 26),
+                    )
+                    outer = (
+                        int(spark_x + math.cos(angle) * (64 + pulse_precision * 12)),
+                        int(spark_y + math.sin(angle) * (64 + pulse_precision * 12)),
+                    )
+                    pygame.draw.line(self.screen, (74, 108, 134), inner, outer, 2)
 
                 for idx in range(6):
                     marker_x = center_x - 140 + idx * 56
@@ -1722,15 +1806,27 @@ class GameLoop:
                         ],
                     )
             elif phase == "gather":
-                target_angle = self._line_birth_time * (1.28 + self._line_birth_gather_collected * 0.08) + self._line_birth_gather_collected * 1.17
-                target_x = center_x + math.cos(target_angle) * (118.0 + 10.0 * math.sin(self._line_birth_time * 1.2 + self._line_birth_gather_collected))
-                target_y = center_y + math.sin(target_angle * 1.18) * (88.0 + 8.0 * math.cos(self._line_birth_time * 0.9 + self._line_birth_gather_collected * 0.7))
+                target_pos = self._line_birth_gather_target_pos()
+                target_x = center_x + target_pos[0]
+                target_y = center_y + target_pos[1]
+                gather_angle = self._line_birth_time * (1.28 + self._line_birth_gather_collected * 0.08) + self._line_birth_gather_collected * 1.17
+                trail = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+                for idx in range(1, 5):
+                    trail_angle = gather_angle - idx * 0.28
+                    trail_x = center_x + math.cos(trail_angle) * (118.0 + 10.0 * math.sin(self._line_birth_time * 1.2 + self._line_birth_gather_collected))
+                    trail_y = center_y + math.sin(trail_angle * 1.18) * (88.0 + 8.0 * math.cos(self._line_birth_time * 0.9 + self._line_birth_gather_collected * 0.7))
+                    pygame.draw.circle(trail, (124, 218, 244, max(18, 64 - idx * 12)), (int(trail_x), int(trail_y)), max(3, 7 - idx))
+                self.screen.blit(trail, (0, 0))
                 self._draw_glow_circle_scene((int(target_x), int(target_y)), 26, (98, 228, 255), 32)
                 pygame.draw.circle(self.screen, (188, 246, 255), (int(target_x), int(target_y)), 10, 2)
                 pygame.draw.circle(self.screen, (236, 252, 255), (int(target_x), int(target_y)), 4)
                 tether = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
                 pygame.draw.line(tether, (70, 120, 148, 58), (spark_x, spark_y), (int(target_x), int(target_y)), 1)
                 self.screen.blit(tether, (0, 0))
+                for sign in (-1, 1):
+                    phantom_x = center_x + math.cos(gather_angle + sign * 1.7) * 142.0
+                    phantom_y = center_y + math.sin((gather_angle + sign * 1.4) * 1.08) * 96.0
+                    pygame.draw.circle(self.screen, (54, 78, 98), (int(phantom_x), int(phantom_y)), 6, 1)
 
                 for idx in range(6):
                     marker_x = center_x - 140 + idx * 56
@@ -1743,11 +1839,13 @@ class GameLoop:
                 target = self._line_birth_endure_target()
                 target_x = center_x + int(target[0])
                 target_y = center_y + int(target[1])
+                safe_radius = self._line_birth_endure_radius()
                 halo_layer = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-                for radius, alpha in ((88, 18), (56, 26), (34, 54)):
-                    pygame.draw.circle(halo_layer, (124, 232, 255, alpha), (target_x, target_y), radius, 1 if radius > 34 else 0)
+                for radius, alpha in ((88, 18), (56, 26), (int(safe_radius), 54)):
+                    pygame.draw.circle(halo_layer, (124, 232, 255, alpha), (target_x, target_y), radius, 1 if radius > safe_radius + 2 else 0)
                 pygame.draw.circle(halo_layer, (222, 250, 255, 120), (target_x, target_y), 10)
                 self.screen.blit(halo_layer, (0, 0))
+                pygame.draw.line(self.screen, (72, 110, 136), (spark_x, spark_y), (target_x, target_y), 1)
 
                 tendrils = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
                 for idx in range(4):
@@ -1761,6 +1859,11 @@ class GameLoop:
                         points.append((int(x), int(y)))
                     pygame.draw.lines(tendrils, (28, 46, 60, 74), False, points, 3)
                 self.screen.blit(tendrils, (0, 0))
+                for idx in range(6):
+                    arc_rect = pygame.Rect(0, 0, int(safe_radius * 2) + idx * 16, int(safe_radius * 2) + idx * 16)
+                    arc_rect.center = (target_x, target_y)
+                    start = self._line_birth_time * (0.7 + idx * 0.08) + idx * 0.9
+                    pygame.draw.arc(self.screen, (38, 64, 82), arc_rect, start, start + math.pi * 0.6, 1)
 
                 meter_width = 320
                 meter_rect = pygame.Rect(0, 0, meter_width, 12)
@@ -1770,11 +1873,13 @@ class GameLoop:
                 fill_rect.width = int(meter_width * self._line_birth_endure_progress)
                 pygame.draw.rect(self.screen, (164, 238, 255), fill_rect, border_radius=6)
             elif phase == "stabilize":
+                safe_limit = self._line_birth_stabilize_safe_limit()
                 guide_rect = pygame.Rect(0, 0, 168, 246)
                 guide_rect.center = (center_x, spark_y)
                 pygame.draw.rect(self.screen, (18, 26, 40), guide_rect, border_radius=24)
                 pygame.draw.rect(self.screen, (60, 88, 112), guide_rect, width=1, border_radius=24)
-                safe_rect = pygame.Rect(0, 0, 70, 214)
+                safe_width = int(42 + safe_limit * 130.0)
+                safe_rect = pygame.Rect(0, 0, safe_width, 214)
                 safe_rect.center = (center_x, spark_y)
                 pygame.draw.rect(self.screen, (20, 58, 78), safe_rect, border_radius=18)
                 pygame.draw.rect(self.screen, (118, 198, 220), safe_rect, width=1, border_radius=18)
@@ -1805,6 +1910,7 @@ class GameLoop:
                     pygame.draw.lines(current_layer, (86, 166, 190, 46), False, points, 2)
                 self.screen.blit(current_layer, (0, 0))
             elif phase == "weave":
+                beat_strength = self._line_birth_weave_beat_strength()
                 braid_layer = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
                 for side in (-1, 1):
                     points = []
@@ -1822,6 +1928,10 @@ class GameLoop:
                         3,
                     )
                 self.screen.blit(braid_layer, (0, 0))
+                beam_layer = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+                beam_alpha = int(24 + beat_strength * 84)
+                pygame.draw.line(beam_layer, (120, 220, 248, beam_alpha), (center_x - 128, center_y), (center_x + 128, center_y), 2)
+                self.screen.blit(beam_layer, (0, 0))
 
                 meter_width = 320
                 meter_rect = pygame.Rect(0, 0, meter_width, 12)
@@ -1833,13 +1943,15 @@ class GameLoop:
                 for side, color in ((-1, (150, 170, 245)), (1, (232, 196, 132))):
                     node_x = center_x + side * 128
                     node_y = center_y
-                    radius = 18 if side == self._line_birth_weave_expected else 12
+                    radius = 12 + (8 if side == self._line_birth_weave_expected else 0) + int(beat_strength * (5 if side == self._line_birth_weave_expected else 2))
                     pygame.draw.circle(self.screen, color, (node_x, node_y), radius, 2)
                     pygame.draw.circle(self.screen, color, (node_x, node_y), 3)
+                    if side == self._line_birth_weave_expected:
+                        self._draw_glow_circle_scene((node_x, node_y), int(18 + beat_strength * 14), color, int(28 + beat_strength * 42))
             else:
                 seal_radius = 124
                 gate_angle = math.pi * 1.5
-                gate_span = 0.22
+                gate_span = self._line_birth_seal_gate_span()
                 ring_rect = pygame.Rect(0, 0, seal_radius * 2, seal_radius * 2)
                 ring_rect.center = (spark_x, spark_y)
                 pygame.draw.arc(
@@ -1870,6 +1982,15 @@ class GameLoop:
                     orb = pygame.Surface((radius * 2 + 6, radius * 2 + 6), pygame.SRCALPHA)
                     pygame.draw.circle(orb, (150, 238, 255, alpha), (radius + 3, radius + 3), radius)
                     self.screen.blit(orb, (int(orb_x) - radius - 3, int(orb_y) - radius - 3))
+                for idx in range(2):
+                    angle = -self._line_birth_seal_rotation * (0.8 + idx * 0.18) + idx * 1.2
+                    inner_radius = seal_radius - 38 - idx * 16
+                    orb_x = spark_x + math.cos(angle) * inner_radius
+                    orb_y = spark_y + math.sin(angle) * inner_radius
+                    pygame.draw.circle(self.screen, (110, 212, 244), (int(orb_x), int(orb_y)), 5 - idx)
+                inner_ring = pygame.Rect(0, 0, (seal_radius - 34) * 2, (seal_radius - 34) * 2)
+                inner_ring.center = (spark_x, spark_y)
+                pygame.draw.arc(self.screen, (70, 108, 132), inner_ring, self._line_birth_time * 1.2, self._line_birth_time * 1.2 + math.pi * 1.1, 2)
 
                 for idx in range(3):
                     marker_x = center_x - 56 + idx * 56

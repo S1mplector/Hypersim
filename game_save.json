@@ -17,7 +17,7 @@
   "unlocked_abilities": [
     "ping_neighbors"
   ],
-  "intro_impulse": "lean",
+  "intro_impulse": "",
   "lineage_ritual_state": "cohere",
   "lineage_direction": "",
   "terminus_seen": false,
