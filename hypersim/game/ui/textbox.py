@@ -62,6 +62,82 @@ class DialogueSequence:
     pause_game: bool = True
 
 
+def draw_polytope_skip_cursor(
+    surface: pygame.Surface,
+    center: tuple[int, int],
+    time_seconds: float,
+    color: tuple[int, int, int] = (220, 230, 255),
+    alpha: int = 255,
+    scale: float = 1.0,
+) -> None:
+    """Draw a small spinning 3D cursor used for dialogue advancement prompts."""
+    size = max(14, int(18 * scale))
+    layer_size = size * 6
+    layer = pygame.Surface((layer_size, layer_size), pygame.SRCALPHA)
+    origin = layer_size // 2
+
+    vertices = [
+        (-1.0, -1.0, -1.0),
+        (1.0, -1.0, -1.0),
+        (1.0, 1.0, -1.0),
+        (-1.0, 1.0, -1.0),
+        (-1.0, -1.0, 1.0),
+        (1.0, -1.0, 1.0),
+        (1.0, 1.0, 1.0),
+        (-1.0, 1.0, 1.0),
+    ]
+    edges = (
+        (0, 1), (1, 2), (2, 3), (3, 0),
+        (4, 5), (5, 6), (6, 7), (7, 4),
+        (0, 4), (1, 5), (2, 6), (3, 7),
+    )
+
+    spin_y = time_seconds * 2.7
+    spin_x = time_seconds * 1.8 + 0.6
+    bob = math.sin(time_seconds * 4.0) * 2.0
+
+    projected: list[tuple[float, float, float]] = []
+    for x, y, z in vertices:
+        cos_y = math.cos(spin_y)
+        sin_y = math.sin(spin_y)
+        rot_x = x * cos_y - z * sin_y
+        rot_z = x * sin_y + z * cos_y
+
+        cos_x = math.cos(spin_x)
+        sin_x = math.sin(spin_x)
+        rot_y = y * cos_x - rot_z * sin_x
+        rot_z = y * sin_x + rot_z * cos_x
+
+        depth = 3.8 + rot_z
+        proj_scale = size / depth
+        proj_x = origin + rot_x * proj_scale
+        proj_y = origin + rot_y * proj_scale + bob
+        projected.append((proj_x, proj_y, rot_z))
+
+    glow = pygame.Surface((layer_size, layer_size), pygame.SRCALPHA)
+    pygame.draw.circle(glow, (*color, max(0, min(255, int(alpha * 0.08)))), (origin, int(origin + bob)), max(4, int(size * 0.95)))
+    layer.blit(glow, (0, 0))
+
+    for start_idx, end_idx in edges:
+        x1, y1, z1 = projected[start_idx]
+        x2, y2, z2 = projected[end_idx]
+        depth_mix = (z1 + z2) * 0.5
+        depth_factor = 0.32 + ((depth_mix + 1.6) / 3.2) * 0.68
+        depth_factor = max(0.2, min(1.0, depth_factor))
+        line_alpha = int(alpha * depth_factor)
+        line_color = (
+            int(color[0] * depth_factor),
+            int(color[1] * depth_factor),
+            int(color[2] * depth_factor),
+            line_alpha,
+        )
+        thickness = 2 if depth_mix > 0.0 else 1
+        pygame.draw.line(layer, line_color, (x1, y1), (x2, y2), thickness)
+
+    pygame.draw.circle(layer, (*color, max(0, min(255, int(alpha * 0.9)))), (origin, int(origin + bob)), max(2, int(size * 0.12)))
+    surface.blit(layer, (center[0] - origin, center[1] - origin))
+
+
 class TextBox:
     """Renders a textbox with typewriter effect."""
     
@@ -364,20 +440,17 @@ class TextBox:
                 self.screen.blit(choice_surface, (box_x + padding + 20, y_offset))
                 y_offset += 30
         
-        # Draw VN-style continue indicator (triangle at right edge)
+        # Draw continue indicator
         if self.waiting_for_input and not self.current_line.choices:
-            hint_color = tuple(int(c * self.fade_alpha * 0.8) for c in style["text_color"])
-            # Animate triangle with gentle bob
-            bob_offset = int(math.sin(pygame.time.get_ticks() / 200) * 3)
-            triangle_x = box_x + box_width - padding - 10
-            triangle_y = box_y + box_height - 18 + bob_offset
-            # Draw downward-facing triangle
-            triangle_points = [
-                (triangle_x - 6, triangle_y),
-                (triangle_x + 6, triangle_y),
-                (triangle_x, triangle_y + 8),
-            ]
-            pygame.draw.polygon(self.screen, hint_color, triangle_points)
+            cursor_color = tuple(int(c * 0.95) for c in style["speaker_color"])
+            draw_polytope_skip_cursor(
+                self.screen,
+                (box_x + box_width - padding - 18, box_y + box_height - 22),
+                pygame.time.get_ticks() / 1000.0,
+                color=cursor_color,
+                alpha=int(235 * self.fade_alpha),
+                scale=0.9,
+            )
     
     def _wrap_text(self, text: str, font: pygame.font.Font, max_width: int) -> List[str]:
         """Wrap text to fit within max_width."""

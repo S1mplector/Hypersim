@@ -18,8 +18,8 @@
     "ping_neighbors"
   ],
   "intro_impulse": "",
-  "lineage_ritual_state": "cohere",
-  "lineage_direction": "",
+  "lineage_ritual_state": "complete",
+  "lineage_direction": "backward",
   "terminus_seen": false,
   "shift_tutorial_done": false,
   "outsider_cutscene_played": false,
