@@ -94,26 +94,6 @@ python examples/game_session_bootstrap.py  # progression/campaign bootstrap
 python -m hypersim.cli --demo game         # progression-enabled sandbox mode
 ```
 
-## Playing the Game
-
-HyperSim now includes a playable cross-dimensional adventure! Start as a 1D being on a line and ascend through dimensions.
-
-**Controls:**
-- **A/D** or **Arrow Keys**: Move (1D)
-- **WASD**: Move in plane (2D)
-- **E**: Interact with portals
-- **Space**: Use ability
-- **P**: Pause
-- **R**: Restart level
-- **ESC**: Quit
-
-**Gameplay:**
-1. Start in 1D - you're a point on a line with limited visibility
-2. Collect energy orbs and avoid enemies
-3. Reach the portal to ascend to 2D
-4. In 2D, explore the plane with full directional movement
-5. Continue ascending through 3D and eventually 4D!
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
